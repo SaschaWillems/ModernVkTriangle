@@ -9,12 +9,14 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
 #include <vector>
+#include <array>
 #include <string>
 #include <iostream>
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 #include <atlbase.h>
-#include "dxcapi.h"
+#include "slang/slang.h"
+#include "slang/slang-com-ptr.h"
 
 static inline void chk(VkResult result) {
 	if (result != VK_SUCCESS) {
@@ -30,7 +32,7 @@ static inline void chk(HRESULT result) {
 	}
 }
 
-static std::string vertShader = R"(
+static std::string shaderSrc = R"(
 struct VSInput
 {
 [[vk::location(0)]] float3 Pos : POSITION0;
@@ -41,17 +43,18 @@ struct VSOutput
 	float4 Pos : SV_POSITION;
 [[vk::location(0)]] float3 Color : COLOR0;
 };
+[shader("vertex")]
 VSOutput main(VSInput input)
 {
 	VSOutput output;
 	output.Color = input.Color;
 	output.Pos = float4(input.Pos.xyz, 1.0);
 	return output;
-})";
-static std::string fragShader = R"(
-float4 main([[vk::location(0)]] float3 Color : COLOR0) : SV_TARGET
+}
+[shader("fragment")]
+float4 main(VSOutput input) : SV_TARGET
 {
-	return float4(Color, 1.0);
+	return float4(input.Color, 1.0);
 })";
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -81,40 +84,19 @@ std::vector<vk::Semaphore> renderSemaphores(maxFramesInFlight);
 VmaAllocator allocator{ VK_NULL_HANDLE };
 VmaAllocation vBufferAllocation{ VK_NULL_HANDLE };
 vk::Buffer vBuffer{ VK_NULL_HANDLE };
-CComPtr<IDxcLibrary> library{ nullptr };
-CComPtr<IDxcCompiler3> compiler{ nullptr };
-CComPtr<IDxcUtils> utils{ nullptr };
-
-static vk::PipelineShaderStageCreateInfo compileShader(std::string& shader, vk::ShaderStageFlagBits shaderStage) {
-	LPCWSTR targetProfile{};
-	switch (shaderStage) {
-	case vk::ShaderStageFlagBits::eFragment:
-		targetProfile = L"ps_6_1";
-		break;
-	default:
-		targetProfile = L"vs_6_1";
-	}
-	std::vector<LPCWSTR> arguments{ L"-E", L"main",  L"-T", targetProfile,  L"-spirv" };
-	DxcBuffer buffer{};
-	buffer.Encoding = DXC_CP_ACP;
-	buffer.Ptr = shader.c_str();
-	buffer.Size = shader.size();
-	CComPtr<IDxcResult> result{ nullptr };
-	chk(compiler->Compile(&buffer, arguments.data(), (uint32_t)arguments.size(), nullptr, IID_PPV_ARGS(&result)));
-	CComPtr<IDxcBlob> code;
-	result->GetResult(&code);
-	vk::ShaderModule shaderModule = device.createShaderModule({ .codeSize = code->GetBufferSize(), .pCode = (uint32_t*)code->GetBufferPointer() });
-	return { .stage = shaderStage, .module = shaderModule, .pName = "main" };
-};
+Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
 
 int main()
 {
 	// Setup
 	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "Modern Vulkan Triangle");
-	// Initialize DXC compiler
-	chk(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&library)));
-	chk(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler)));
-	chk(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils)));
+	// Initialize slang compiler
+	slang::createGlobalSession(slangGlobalSession.writeRef());
+	auto targets{ std::to_array<slang::TargetDesc>({ {.format{SLANG_SPIRV}, .profile{slangGlobalSession->findProfile("spirv_1_6")} } }) };
+	auto options{ std::to_array<slang::CompilerOptionEntry>({ { slang::CompilerOptionName::EmitSpirvDirectly, {slang::CompilerOptionValueKind::Int, 1} } }) };
+	slang::SessionDesc desc{ .targets{targets.data()}, .targetCount{SlangInt(targets.size())}, .compilerOptionEntries{options.data()}, .compilerOptionEntryCount{uint32_t(options.size())} };
+	Slang::ComPtr<slang::ISession> slangSession;
+	slangGlobalSession->createSession(desc, slangSession.writeRef());
 	// Instance
 	VULKAN_HPP_DEFAULT_DISPATCHER.init();
 	vk::ApplicationInfo appInfo{ .pApplicationName = "Modern Vulkan Triangle", .apiVersion = VK_API_VERSION_1_3 };
@@ -195,9 +177,23 @@ int main()
 		presentSemaphores[i] = device.createSemaphore({});
 		renderSemaphores[i] = device.createSemaphore({});
 	}
+	// Shaders
+	std::array<vk::PipelineShaderStageCreateInfo, 2> stages{};
+	Slang::ComPtr<slang::IModule> shaderModule{ slangSession->loadModuleFromSourceString("ModernVkTriangl", nullptr, shaderSrc.c_str()) };
+	Slang::ComPtr<ISlangBlob> spirv;
+	shaderModule->getTargetCode(0, spirv.writeRef());
+	stages[0] = {
+		.stage = vk::ShaderStageFlagBits::eVertex,
+		.module = device.createShaderModule({.codeSize = spirv->getBufferSize(), .pCode = (uint32_t*)spirv->getBufferPointer() }),
+		.pName = "main"
+	};
+	stages[1] = {
+		.stage = vk::ShaderStageFlagBits::eFragment,
+		.module = device.createShaderModule({.codeSize = spirv->getBufferSize(), .pCode = (uint32_t*)spirv->getBufferPointer() }),
+		.pName = "main"
+	};
 	// Pipeline
 	pipelineLayout = device.createPipelineLayout({});
-	std::vector<vk::PipelineShaderStageCreateInfo> stages{ compileShader(vertShader, vk::ShaderStageFlagBits::eVertex), compileShader(fragShader, vk::ShaderStageFlagBits::eFragment) };
 	vk::VertexInputBindingDescription vertexBinding{ .binding = 0, .stride = sizeof(float) * 6, .inputRate = vk::VertexInputRate::eVertex };
 	std::vector<vk::VertexInputAttributeDescription> vertexAttributes{
 		{.location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat },
