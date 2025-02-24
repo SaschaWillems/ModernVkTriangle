@@ -14,7 +14,6 @@
 #include <iostream>
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
-#include <atlbase.h>
 #include "slang/slang.h"
 #include "slang/slang-com-ptr.h"
 
@@ -125,32 +124,18 @@ int main()
 	chk(window.createVulkanSurface(static_cast<VkInstance>(instance), _surface));
 	surface = vk::SurfaceKHR(_surface);
 	const vk::Format imageFormat{ vk::Format::eB8G8R8A8Srgb };
-	const vk::ColorSpaceKHR colorSpace{ vk::ColorSpaceKHR::eSrgbNonlinear };
 	vk::SwapchainCreateInfoKHR swapchainCI{
 		.surface = surface,
 		.minImageCount = 2,
 		.imageFormat = imageFormat,
-		.imageColorSpace = colorSpace,
 		.imageExtent = {.width = window.getSize().x, .height = window.getSize().y, },
 		.imageArrayLayers = 1,
 		.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst,
-		.queueFamilyIndexCount = qf,
-		.preTransform = vk::SurfaceTransformFlagBitsKHR::eIdentity,
-		.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
 		.presentMode = vk::PresentModeKHR::eFifo,
-
 	};
 	swapchain = device.createSwapchainKHR(swapchainCI);
 	swapchainImages = device.getSwapchainImagesKHR(swapchain);
-	vk::ImageCreateInfo renderImageCI{
-		.imageType = vk::ImageType::e2D,
-		.format = imageFormat,
-		.extent = {.width = window.getSize().x, .height = window.getSize().y, .depth = 1 },
-		.mipLevels = 1,
-		.arrayLayers = 1,
-		.samples = sampleCount,
-		.usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc,
-	};
+	vk::ImageCreateInfo renderImageCI{ .imageType = vk::ImageType::e2D, .format = imageFormat, .extent = {.width = window.getSize().x, .height = window.getSize().y, .depth = 1 }, .mipLevels = 1, .arrayLayers = 1, .samples = sampleCount, .usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc };
 	VmaAllocationCreateInfo allocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO, .priority = 1.0f };
 	vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&renderImageCI), &allocCI, reinterpret_cast<VkImage*>(&renderImage), &renderImageAllocation, nullptr);
 	vk::ImageViewCreateInfo viewCI{ .image = renderImage, .viewType = vk::ImageViewType::e2D, .format = imageFormat, .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor, .levelCount = 1, .layerCount = 1 } };
@@ -164,11 +149,9 @@ int main()
 	const std::vector<float> vertices{ 0.0f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, /**/ 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f, /**/ -0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f };
 	VkBufferCreateInfo bufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = sizeof(float) * vertices.size(), .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT };
 	VmaAllocationCreateInfo bufferAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
-	chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, reinterpret_cast<VkBuffer*>(&vBuffer), &vBufferAllocation, nullptr));
-	void* bufferPtr{ nullptr };
-	vmaMapMemory(allocator, vBufferAllocation, &bufferPtr);
-	memcpy(bufferPtr, vertices.data(), sizeof(float) * vertices.size());
-	vmaUnmapMemory(allocator, vBufferAllocation);
+	VmaAllocationInfo bufferAllocInfo{};
+	chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, reinterpret_cast<VkBuffer*>(&vBuffer), &vBufferAllocation, &bufferAllocInfo));
+	memcpy(bufferAllocInfo.pMappedData, vertices.data(), sizeof(float) * vertices.size());
 	commandPool = device.createCommandPool({ .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer, .queueFamilyIndex = qf });
 	// Sync objects
 	commandBuffers = device.allocateCommandBuffers({ .commandPool = commandPool, .commandBufferCount = maxFramesInFlight });
@@ -177,20 +160,14 @@ int main()
 		presentSemaphores[i] = device.createSemaphore({});
 		renderSemaphores[i] = device.createSemaphore({});
 	}
-	// Shaders
-	std::array<vk::PipelineShaderStageCreateInfo, 2> stages{};
-	Slang::ComPtr<slang::IModule> shaderModule{ slangSession->loadModuleFromSourceString("ModernVkTriangl", nullptr, shaderSrc.c_str()) };
+	// Shaders	
+	Slang::ComPtr<slang::IModule> slangModule{ slangSession->loadModuleFromSourceString("triangle", nullptr, shaderSrc.c_str()) };
 	Slang::ComPtr<ISlangBlob> spirv;
-	shaderModule->getTargetCode(0, spirv.writeRef());
-	stages[0] = {
-		.stage = vk::ShaderStageFlagBits::eVertex,
-		.module = device.createShaderModule({.codeSize = spirv->getBufferSize(), .pCode = (uint32_t*)spirv->getBufferPointer() }),
-		.pName = "main"
-	};
-	stages[1] = {
-		.stage = vk::ShaderStageFlagBits::eFragment,
-		.module = device.createShaderModule({.codeSize = spirv->getBufferSize(), .pCode = (uint32_t*)spirv->getBufferPointer() }),
-		.pName = "main"
+	slangModule->getTargetCode(0, spirv.writeRef());
+	vk::ShaderModule shaderModule = device.createShaderModule({ .codeSize = spirv->getBufferSize(), .pCode = (uint32_t*)spirv->getBufferPointer() });
+	std::vector<vk::PipelineShaderStageCreateInfo> stages{
+		{.stage = vk::ShaderStageFlagBits::eVertex, .module = shaderModule, .pName = "main"},
+		{.stage = vk::ShaderStageFlagBits::eFragment, .module = shaderModule, .pName = "main" }
 	};
 	// Pipeline
 	pipelineLayout = device.createPipelineLayout({});
@@ -225,8 +202,7 @@ int main()
 		.layout = pipelineLayout,
 	};
 	std::tie(result, pipeline) = device.createGraphicsPipeline(nullptr, pipelineCI);
-	device.destroyShaderModule(stages[0].module, nullptr);
-	device.destroyShaderModule(stages[1].module, nullptr);
+	device.destroyShaderModule(shaderModule, nullptr);
 	// Render
 	while (window.isOpen())
 	{
@@ -238,7 +214,6 @@ int main()
 		cb.reset();
 		cb.begin({ .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
 		vk::ImageMemoryBarrier barrier0{
-			.srcAccessMask = {},
 			.dstAccessMask = vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite,
 			.oldLayout = vk::ImageLayout::eUndefined,
 			.newLayout = vk::ImageLayout::eGeneral,
@@ -256,17 +231,11 @@ int main()
 			.storeOp = vk::AttachmentStoreOp::eStore,
 			.clearValue = vk::ClearValue{ vk::ClearColorValue{ std::array<float, 4>{0.0f, 0.0f, 0.2f, 1.0f} } },
 		};
-		vk::RenderingInfo renderingInfo{
-			.renderArea = {.extent = {.width = window.getSize().x, .height = window.getSize().y }},
-			.layerCount = 1,
-			.colorAttachmentCount = 1,
-			.pColorAttachments = &colorAttachmentInfo,
-		};
+		vk::RenderingInfo renderingInfo{ .renderArea = {.extent = {.width = window.getSize().x, .height = window.getSize().y }}, .layerCount = 1, .colorAttachmentCount = 1, .pColorAttachments = &colorAttachmentInfo };
 		cb.beginRendering(renderingInfo);
 		vk::Viewport vp{ .width = static_cast<float>(window.getSize().x), .height = static_cast<float>(window.getSize().y), .minDepth = 0.0f, .maxDepth = 1.0f };
 		cb.setViewport(0, 1, &vp);
-		vk::Rect2D scissor{ .extent = {.width = window.getSize().x, .height = window.getSize().y } };
-		cb.setScissor(0, 1, &scissor);
+		cb.setScissor(0, 1, &renderingInfo.renderArea);
 		cb.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 		vk::DeviceSize vOffset{ 0 };
 		cb.bindVertexBuffers(0, 1, &vBuffer, &vOffset);
@@ -274,7 +243,6 @@ int main()
 		cb.endRendering();
 		vk::ImageMemoryBarrier barrier1{
 			.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
-			.dstAccessMask = {},
 			.oldLayout = vk::ImageLayout::eUndefined,
 			.newLayout = vk::ImageLayout::ePresentSrcKHR,
 			.image = swapchainImages[imageIndex],
@@ -297,14 +265,11 @@ int main()
 		queue.presentKHR({ .waitSemaphoreCount = 1, .pWaitSemaphores = &renderSemaphores[frameIndex], .swapchainCount = 1, .pSwapchains = &swapchain, .pImageIndices = &imageIndex });
 		frameIndex++;
 		if (frameIndex >= maxFramesInFlight) { frameIndex = 0; }
-		while (const std::optional event = window.pollEvent())
-		{
-			if (event->is<sf::Event::Closed>())
-			{
+		while (const std::optional event = window.pollEvent()) {
+			if (event->is<sf::Event::Closed>()) {
 				window.close();
 			}
-			if (event->is<sf::Event::Resized>())
-			{
+			if (event->is<sf::Event::Resized>()) {
 				device.waitIdle();
 				swapchainCI.oldSwapchain = swapchain;
 				swapchainCI.imageExtent = { .width = static_cast<uint32_t>(window.getSize().x), .height = static_cast<uint32_t>(window.getSize().y) };
@@ -312,7 +277,6 @@ int main()
 				swapchainImages = device.getSwapchainImagesKHR(swapchain);
 				vmaDestroyImage(allocator, renderImage, renderImageAllocation);
 				device.destroyImageView(renderImageView, nullptr);
-				swapchainImageViews.resize(swapchainImages.size());
 				for (auto i = 0; i < swapchainImageViews.size(); i++) {
 					device.destroyImageView(swapchainImageViews[i], nullptr);
 				}
