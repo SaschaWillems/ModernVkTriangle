@@ -34,13 +34,13 @@ static inline void chk(HRESULT result) {
 static std::string shaderSrc = R"(
 struct VSInput
 {
-[[vk::location(0)]] float3 Pos : POSITION0;
-[[vk::location(1)]] float3 Color : COLOR0;
+	float3 Pos : POSITION0;
+	float3 Color;
 };
 struct VSOutput
 {
 	float4 Pos : SV_POSITION;
-[[vk::location(0)]] float3 Color : COLOR0;
+	float3 Color;
 };
 [shader("vertex")]
 VSOutput main(VSInput input)
@@ -51,7 +51,7 @@ VSOutput main(VSInput input)
 	return output;
 }
 [shader("fragment")]
-float4 main(VSOutput input) : SV_TARGET
+float4 main(VSOutput input)
 {
 	return float4(input.Color, 1.0);
 })";
