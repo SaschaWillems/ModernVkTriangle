@@ -78,8 +78,8 @@ std::vector<vk::Image> swapchainImages;
 std::vector<vk::ImageView> swapchainImageViews;
 std::vector<vk::CommandBuffer> commandBuffers(maxFramesInFlight);
 std::vector<vk::Fence> fences(maxFramesInFlight);
-std::vector<vk::Semaphore> presentSemaphores(maxFramesInFlight);
-std::vector<vk::Semaphore> renderSemaphores(maxFramesInFlight);
+std::vector<vk::Semaphore> presentSemaphores;
+std::vector<vk::Semaphore> renderSemaphores;
 VmaAllocator allocator{ VK_NULL_HANDLE };
 VmaAllocation vBufferAllocation{ VK_NULL_HANDLE };
 vk::Buffer vBuffer{ VK_NULL_HANDLE };
@@ -157,8 +157,14 @@ int main()
 	commandBuffers = device.allocateCommandBuffers({ .commandPool = commandPool, .commandBufferCount = maxFramesInFlight });
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		fences[i] = device.createFence({ .flags = vk::FenceCreateFlagBits::eSignaled });
-		presentSemaphores[i] = device.createSemaphore({});
-		renderSemaphores[i] = device.createSemaphore({});
+	}
+	presentSemaphores.resize(maxFramesInFlight);
+	for (auto& semaphore : presentSemaphores) {
+		semaphore = device.createSemaphore({});
+	}
+	renderSemaphores.resize(swapchainImages.size());
+	for (auto& semaphore : renderSemaphores) {
+		semaphore = device.createSemaphore({});
 	}
 	// Shaders	
 	Slang::ComPtr<slang::IModule> slangModule{ slangSession->loadModuleFromSourceString("triangle", nullptr, shaderSrc.c_str()) };
@@ -259,10 +265,10 @@ int main()
 			.commandBufferCount = 1,
 			.pCommandBuffers = &cb,
 			.signalSemaphoreCount = 1,
-			.pSignalSemaphores = &renderSemaphores[frameIndex],
+			.pSignalSemaphores = &renderSemaphores[imageIndex],
 		};
 		queue.submit(submitInfo, fences[frameIndex]);
-		queue.presentKHR({ .waitSemaphoreCount = 1, .pWaitSemaphores = &renderSemaphores[frameIndex], .swapchainCount = 1, .pSwapchains = &swapchain, .pImageIndices = &imageIndex });
+		queue.presentKHR({ .waitSemaphoreCount = 1, .pWaitSemaphores = &renderSemaphores[imageIndex], .swapchainCount = 1, .pSwapchains = &swapchain, .pImageIndices = &imageIndex });
 		frameIndex++;
 		if (frameIndex >= maxFramesInFlight) { frameIndex = 0; }
 		while (const std::optional event = window.pollEvent()) {
@@ -298,7 +304,11 @@ int main()
 	device.waitIdle();
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		device.destroyFence(fences[i], nullptr);
+	}
+	for (auto i = 0; i < presentSemaphores.size(); i++) {
 		device.destroySemaphore(presentSemaphores[i], nullptr);
+	}
+	for (auto i = 0; i < renderSemaphores.size(); i++) {
 		device.destroySemaphore(renderSemaphores[i], nullptr);
 	}
 	vmaDestroyImage(allocator, renderImage, renderImageAllocation);
