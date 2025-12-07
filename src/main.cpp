@@ -79,7 +79,7 @@ std::vector<VkImageView> swapchainImageViews;
 std::vector<VkCommandBuffer> commandBuffers(maxFramesInFlight);
 std::vector<VkFence> fences(maxFramesInFlight);
 std::vector<VkSemaphore> presentSemaphores(maxFramesInFlight);
-std::vector<VkSemaphore> renderSemaphores(maxFramesInFlight);
+std::vector<VkSemaphore> renderSemaphores;
 VmaAllocator allocator{ VK_NULL_HANDLE };
 VmaAllocation vBufferAllocation{ VK_NULL_HANDLE };
 VkBuffer vBuffer{ VK_NULL_HANDLE };
@@ -190,14 +190,17 @@ int main()
 	VkCommandPoolCreateInfo commandPoolCI = { .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = qf };
 	chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
 	// Sync objects
+	VkSemaphoreCreateInfo semaphoreCI = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		VkCommandBufferAllocateInfo cbAllocCI = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = 1};
 		chk(vkAllocateCommandBuffers(device, &cbAllocCI, &commandBuffers[i]));
 		VkFenceCreateInfo fenceCI = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
 		vkCreateFence(device, &fenceCI, nullptr, &fences[i]);
-		VkSemaphoreCreateInfo semaphoreCI = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 		chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &presentSemaphores[i]));
-		chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &renderSemaphores[i]));
+	}
+	renderSemaphores.resize(swapchainImages.size());
+	for (auto& semaphore : renderSemaphores) {
+		chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &semaphore));
 	}
 	// Shaders	
 	Slang::ComPtr<slang::IModule> slangModule{ slangSession->loadModuleFromSourceString("triangle", nullptr, shaderSrc.c_str()) };
@@ -210,8 +213,8 @@ int main()
 	VkPipelineLayoutCreateInfo pipelineLayoutCI = { .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayout));
 	std::vector<VkPipelineShaderStageCreateInfo> stages{
-		{.stage = VK_SHADER_STAGE_VERTEX_BIT, .module = shaderModule, .pName = "main"},
-		{.stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = shaderModule, .pName = "main" }
+		{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = shaderModule, .pName = "main"},
+		{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = shaderModule, .pName = "main" }
 	};
 	VkVertexInputBindingDescription vertexBinding = { .binding = 0, .stride = sizeof(float) * 6, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
 	std::vector<VkVertexInputAttributeDescription> vertexAttributes = {
@@ -322,13 +325,13 @@ int main()
 			.commandBufferCount = 1,
 			.pCommandBuffers = &cb,
 			.signalSemaphoreCount = 1,
-			.pSignalSemaphores = &renderSemaphores[frameIndex],
+			.pSignalSemaphores = &renderSemaphores[imageIndex],
 		};
 		vkQueueSubmit(queue, 1, &submitInfo, fences[frameIndex]);
 		VkPresentInfoKHR presentInfo = {
 			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &renderSemaphores[frameIndex],
+			.pWaitSemaphores = &renderSemaphores[imageIndex],
 			.swapchainCount = 1,
 			.pSwapchains = &swapchain,
 			.pImageIndices = &imageIndex
