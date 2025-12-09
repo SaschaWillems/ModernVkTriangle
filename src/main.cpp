@@ -391,7 +391,7 @@ int main()
 				if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
 					auto delta = lastMousePos - mouseMoved->position;
 					rotation.x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
-					rotation.y += (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
+					rotation.y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
 				}
 				lastMousePos = mouseMoved->position;
 			}
