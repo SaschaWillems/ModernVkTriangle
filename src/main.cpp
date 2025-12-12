@@ -36,32 +36,6 @@ static inline void chk(bool result) {
 	}
 }
 
-static std::string shaderSrc = R"(
-struct VSInput {
-	float3 Pos;
-	float2 UV;
-};
-struct UBO {
-	float4x4 mvp;
-};
-[[vk::binding(0,0)]] ConstantBuffer<UBO> ubo;
-[[vk::binding(0,1)]] Sampler2D samplerTexture;
-struct VSOutput {
-	float4 Pos : SV_POSITION;
-	float2 UV;
-};
-[shader("vertex")]
-VSOutput main(VSInput input) {
-	VSOutput output;
-	output.UV = input.UV;
-	output.Pos = mul(ubo.mvp, float4(input.Pos.xyz, 1.0));
-	return output;
-}
-[shader("fragment")]
-float4 main(VSOutput input) {
-	return float4(samplerTexture.Sample(input.UV).rgb, 1.0);
-})";
-
 const uint32_t maxFramesInFlight{ 2 };
 const VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_4_BIT;
 uint32_t imageIndex{ 0 };
@@ -267,7 +241,6 @@ int main()
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.tiling = VK_IMAGE_TILING_OPTIMAL,
 		.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
 	};
 	chk(vmaCreateImage(allocator, &texImgCI, &uImageAllocCI, &texture.image, &texture.allocation, nullptr));
@@ -344,7 +317,7 @@ int main()
 	vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
 	delete[] ktxData;
 	// Shaders
-	Slang::ComPtr<slang::IModule> slangModule{ slangSession->loadModuleFromSourceString("triangle", nullptr, shaderSrc.c_str()) };
+	Slang::ComPtr<slang::IModule> slangModule{ slangSession->loadModuleFromSource("triangle", "assets/shader.slang", nullptr, nullptr) };
 	Slang::ComPtr<ISlangBlob> spirv;
 	slangModule->getTargetCode(0, spirv.writeRef());
 	VkShaderModuleCreateInfo shaderModuleCI{ .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, .codeSize = spirv->getBufferSize(), .pCode = (uint32_t*)spirv->getBufferPointer() };
