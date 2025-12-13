@@ -20,13 +20,15 @@ At the end of this tutorial we'll see a textured quad on screen that can be rota
 
 ## Libraries
 
-Begin an explicit api, writing code for Vulkan is very verbose. To concentrate on the interesting parts we'll be using several libraries. Note that one of those are required to work with Vulkan.
+Vulkan is a deliberately explicit api, writing code it can be very verbose. To concentrate on the interesting parts we'll be using several libraries.
 
 * [SFML](https://www.sfml-dev.org/) - Windowing and input (among other things not used in this tutorial). Without a library like this we would have to write platform specific code for these. Alternatives are [glfw](https://www.glfw.org/) and [SDL](https://www.libsdl.org/).
 * [Volk](https://github.com/zeux/volk) - Meta-loader for Vulkan that simplifies loading of Vulkan functions.
 * [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) - Simplifies dealing with memory allocations. Removes some of the verbosity around Vulkan's memory management.
 * [glm](https://github.com/g-truc/glm) - A mathematics library with support for often-used things like matrices and vectors.
 * [dds-ktx](https://github.com/septag/dds-ktx) - Portable single header library for loading images from KTX files. This will be used for loading textures. The official alternative would be [KTX-Software](https://github.com/KhronosGroup/KTX-Software), but it's a large dependency.
+
+> **Note:** None of these are required to work with Vulkan. Some of these are widely used though and make working with Vulkan easier.
 
 ## Programming language
 
@@ -107,6 +109,8 @@ const std::vector<const char*> instanceExtensions{ sf::Vulkan::getGraphicsRequir
 
 So no more need to worry about platform specific things. With the application info and the required extensions set up, we can create our instance:
 
+> **Note:** There are two extension types in Vulkan. Instance and device extensions. The former are mostly global, often platform specific extensions independent of your GPU, the latter are based on your GPU's capabilities.
+
 ```cpp
 VkInstanceCreateInfo instanceCI{
 	.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -119,7 +123,11 @@ chk(vkCreateInstance(&instanceCI, nullptr, &instance));
 
 This is very simple. We pass our application info and both the names and number of instance extensions that SFML gave us. Calling [`vkCreateInstance`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateInstance.html) creates our instance.
 
-> **Note:** Most Vulkan functions can fail and as such have a return code of type [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html). We use a small inline function called `chk` to check that return code and in case of an error we exit the application. In a real world application you should do more sophisticated error handling.
+> **Note:** Most Vulkan functions can fail and as such have a return code of type [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html). We use a small inline function called `chk` to check that return code and in case of an error we exit the application. In a real-world application you should do more sophisticated error handling.
+
+## Queues
+
+@todo: Should use code to properly select a queue famile
 
 ## Device setup
 
@@ -138,7 +146,60 @@ chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
 
 > **Note:** Having to call functions that return some sort of list twice is common in the Vulkan C-API. The first call will return the number of elements, which is then used to properly size the result list. The second call then fills the actual result list.
 
-After the second call to `vkEnumeratePhysicalDevices` we have a list of Vulkan capable devices in `devices`. On most systems this will be one device.
+After the second call to [`vkEnumeratePhysicalDevices`](https://docs.vulkan.org/refpages/latest/refpages/source/vkEnumeratePhysicalDevices.html) we have a list of Vulkan capable devices in `devices`. On most systems there will only be one device, so for simplicity we use the first physical device. In a real-world application you could let the user select different devices, e.g. via command line arguments.
+
+One thing that's also part of device creation is requesting features and extensions we want to use. But our instance was created with Vulkan 1.3 as a baseline, which gives us almost all the features we want to use. So we only have to request the [`VK_KHR_swapchain`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_swapchain.html) extension in order to be able to present something to the screen and the [`.samplerAnisotropy`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) feature so we can use anisotropic filtering for texture images:
+
+```cpp
+const std::vector<const char*> deviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+const VkPhysicalDeviceFeatures enabledFeatures{ .samplerAnisotropy = VK_TRUE };
+```
+
+> **Note:** The Vulkan headers have defines for all extensions (like `VK_KHR_SWAPCHAIN_EXTENSION_NAME`) that you can use instead of writing their name as string. This helps to avoid typos in extension names.
+
+With everything in place, we create a logical device. Queues are also part of the logical device, so they'll be requested at device creation:
+
+```cpp
+VkDeviceCreateInfo deviceCI{
+	.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+	.pNext = &features,
+	.queueCreateInfoCount = 1,
+	.pQueueCreateInfos = &queueCI,
+	.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size()),
+	.ppEnabledExtensionNames = deviceExtensions.data(),
+	.pEnabledFeatures = &enabledFeatures
+};
+chk(vkCreateDevice(devices[deviceIndex], &deviceCI, nullptr, &device));
+```
+
+We also need a queue to submit our commands to, which we can now request from the device we just created:
+
+```cpp
+vkGetDeviceQueue(device, qf, 0, &queue);
+```
+
+## Setting up VMA
+
+Vulkan is an explicit API, which also applies to memory management. As noted in the list of libraries we will be using the [Vulkan Memory Allocator (VMA)](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) to simplify this as far as possible.
+
+VMA provides an allocator used to allocate memory from. This needs to be set up for your project. For that we pass in pointers to some common Vulkan functions and the Vulkan instance and device we just created:
+
+```cpp
+VmaVulkanFunctions vkFunctions{
+	.vkGetInstanceProcAddr = vkGetInstanceProcAddr,
+	.vkGetDeviceProcAddr = vkGetDeviceProcAddr,
+	.vkCreateImage = vkCreateImage
+};
+VmaAllocatorCreateInfo allocatorCI{
+	.physicalDevice = devices[deviceIndex],
+	.device = device,
+	.pVulkanFunctions = &vkFunctions,
+	.instance = instance
+};
+chk(vmaCreateAllocator(&allocatorCI, &allocator));
+```
+
+> **Note:** VMA also uses [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html) return codes, we can use the same `chK` for it's function calls.
 
 ## Preparing to draw
 
