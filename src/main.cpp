@@ -92,8 +92,6 @@ int main()
 	slang::SessionDesc desc{ .targets{targets.data()}, .targetCount{SlangInt(targets.size())}, .defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR, .compilerOptionEntries{options.data()}, .compilerOptionEntryCount{uint32_t(options.size())} };
 	Slang::ComPtr<slang::ISession> slangSession;
 	slangGlobalSession->createSession(desc, slangSession.writeRef());
-	// Window
-	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
 	// Instance
 	VkApplicationInfo appInfo{ .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "How to Vulkan", .apiVersion = VK_API_VERSION_1_3 };
 	const std::vector<const char*> instanceExtensions{ sf::Vulkan::getGraphicsRequiredInstanceExtensions() };
@@ -133,6 +131,7 @@ int main()
 	VmaAllocatorCreateInfo allocatorCI{ .physicalDevice = devices[deviceIndex], .device = device, .pVulkanFunctions = &vkFunctions, .instance = instance };
 	chk(vmaCreateAllocator(&allocatorCI, &allocator));
 	// Presentation
+	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
 	chk(window.createVulkanSurface(instance, surface));
 	const VkFormat imageFormat{ VK_FORMAT_B8G8R8A8_SRGB };
 	VkSwapchainCreateInfoKHR swapchainCI{
