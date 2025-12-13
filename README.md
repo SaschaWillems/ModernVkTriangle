@@ -127,11 +127,39 @@ This is very simple. We pass our application info and both the names and number 
 
 ## Queues
 
-@todo: Should use code to properly select a queue famile
+In Vulkan, work is not directly submitted to a device but rather to a queue. A queue abstracts access to a piece of hardware (graphics, compute, transfer, video, etc.). They are organized in queue families, which each family describing a set of queues with common functionality. Available queue types differ between GPUs. We'll only do graphics operations, so we need to just find one suitable queue family with graphics support. This is done by checking for the [`VK_QUEUE_GRAPHICS_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkQueueFlagBits.html) flag:
+
+```cpp
+uint32_t queueFamilyCount{ 0 };
+vkGetPhysicalDeviceQueueFamilyProperties(devices[deviceIndex], &queueFamilyCount, nullptr);
+std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+vkGetPhysicalDeviceQueueFamilyProperties(devices[deviceIndex], &queueFamilyCount, queueFamilies.data());
+uint32_t queueFamily{ 0 };
+for (size_t i = 0; i < queueFamilies.size(); i++) {
+	if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+		queueFamily = i;
+		break;
+	}
+}
+```
+
+> **Note:** In the real world you'll rarely find GPUs that don't have a queue family that supports graphics. Also most of the time the first queue family supports both graphics and compute (as well as presentation, but that follows at a later point).
+
+For our next step we need to reference that queue family using a [`VkDeviceQueueCreateInfo´](https://docs.vulkan.org/refpages/latest/refpages/source/VkDeviceQueueCreateInfo.html). While we don't do that, it's possible to request multiple queues from the same family. That's why we need to specify priorities in `pQueuePriorities` (in our case just one). With multiple queues from the same family, a driver might use that information to prioritize work:
+
+```cpp
+const float qfpriorities{ 1.0f };
+VkDeviceQueueCreateInfo queueCI{
+	.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+	.queueFamilyIndex = queueFamily,
+	.queueCount = 1,
+	.pQueuePriorities = &qfpriorities
+};
+```
 
 ## Device setup
 
-Now that we have a connection to the Vulkan library, we need to get a handle to the GPU. This is called a **device** in Vulkan. Vulkan distinguishes between physical and logical devices. The former presents the actual device (usually the GPU), the latter presents a handle to that device's Vulkan implementation which the application will interact with.
+Now that we have a connection to the Vulkan library and know what queue family we want to use, we need to get a handle to the GPU. This is called a **device** in Vulkan. Vulkan distinguishes between physical and logical devices. The former presents the actual device (usually the GPU), the latter presents a handle to that device's Vulkan implementation which the application will interact with.
 
 > **Note:** When dealing with Vulkan a commonly used term is implementation. This refers to something that implements the Vulkan API. Usually it's the driver for your GPU, but it also could be a CPU based software implementation. To keep things simple we'll be using the term GPU for the rest of the tutorial.
 
@@ -148,34 +176,44 @@ chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
 
 After the second call to [`vkEnumeratePhysicalDevices`](https://docs.vulkan.org/refpages/latest/refpages/source/vkEnumeratePhysicalDevices.html) we have a list of Vulkan capable devices in `devices`. On most systems there will only be one device, so for simplicity we use the first physical device. In a real-world application you could let the user select different devices, e.g. via command line arguments.
 
-One thing that's also part of device creation is requesting features and extensions we want to use. But our instance was created with Vulkan 1.3 as a baseline, which gives us almost all the features we want to use. So we only have to request the [`VK_KHR_swapchain`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_swapchain.html) extension in order to be able to present something to the screen and the [`.samplerAnisotropy`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) feature so we can use anisotropic filtering for texture images:
+One thing that's also part of device creation is requesting features and extensions we want to use. But our instance was created with Vulkan 1.3 as a baseline, which gives us almost all the features we want to use. So we only have to request the [`VK_KHR_swapchain`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_swapchain.html) extension in order to be able to present something to the screen.
+
+Similar to instance creation, using Vulkan 1.3 as a baseline already gives us most of the required functionality. But we'll use dynamic rendering, so we need to set that via the [`dynamicRendering`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceVulkan13Features.html#_members) member of the Vulkan 1.3 feature information. We also want to use anisotropic filtering textures images, so we set [`samplerAnisotropy`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) in the Vulkan 10 feature information:
 
 ```cpp
 const std::vector<const char*> deviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
-const VkPhysicalDeviceFeatures enabledFeatures{ .samplerAnisotropy = VK_TRUE };
+const VkPhysicalDeviceVulkan13Features enabledVk13Features{
+	.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+	.dynamicRendering = true
+};
+const VkPhysicalDeviceFeatures enabledVk10Features{
+	.samplerAnisotropy = VK_TRUE
+};
 ```
 
 > **Note:** The Vulkan headers have defines for all extensions (like `VK_KHR_SWAPCHAIN_EXTENSION_NAME`) that you can use instead of writing their name as string. This helps to avoid typos in extension names.
 
-With everything in place, we create a logical device. Queues are also part of the logical device, so they'll be requested at device creation:
+With everything in place, we can create a logical device passing all required data: features (for the different core versions), extensions and the queue families we want to use:
 
 ```cpp
 VkDeviceCreateInfo deviceCI{
 	.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-	.pNext = &features,
+	.pNext = &enabledVk13Features,
 	.queueCreateInfoCount = 1,
 	.pQueueCreateInfos = &queueCI,
 	.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size()),
 	.ppEnabledExtensionNames = deviceExtensions.data(),
-	.pEnabledFeatures = &enabledFeatures
+	.pEnabledFeatures = &enabledVk10Features
 };
 chk(vkCreateDevice(devices[deviceIndex], &deviceCI, nullptr, &device));
 ```
 
+> **Note:** Another Vulkan struct member you're going to see often is `pNext`. This can be used to create a linked list of structures that are passed into a function call. It's often used to pass extension structures. The driver then uses the `sType` member of each structure in that list to identify said structure's type.
+
 We also need a queue to submit our commands to, which we can now request from the device we just created:
 
 ```cpp
-vkGetDeviceQueue(device, qf, 0, &queue);
+vkGetDeviceQueue(device, queueFamily, 0, &queue);
 ```
 
 ## Setting up VMA
@@ -212,3 +250,8 @@ auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
 ```
 
 And then 
+
+# Todo
+
+- Queues: Work needs to be submitted to queues. They abstract hardware, explain e.g. compute only queue
+- Command buffer : Work items have to be "compiled" into command buffers and submitted to queues. E.g. used to create command buffers on multiple threads
