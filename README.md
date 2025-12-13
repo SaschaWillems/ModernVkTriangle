@@ -12,7 +12,7 @@ tl;dr: Doing Vulkan in 2025 can be very different from doing Vulkan in 2016. Tha
 
 ## Target audience
 
-The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (<1h). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). You should bring at least basic knowledge of C/C++ and graphics programming concepts are required.
+The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (in an afternoon). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). You should bring at least basic knowledge of C/C++ and graphics programming concepts are required.
 
 ## Goal
 
@@ -78,3 +78,76 @@ float4 main(VSOutput input) {
 	return float4(samplerTexture.Sample(input.UV).rgb, 1.0);
 }
 ```
+
+## Instance setup
+
+The first thing we need is a Vulkan instance. It connects the application to Vulkan and as such is the base for everything that follows.
+
+Setting up the instance consists of passing information about your application:
+
+```cpp
+VkApplicationInfo appInfo{
+	.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+	.pApplicationName = "How to Vulkan",
+	.apiVersion = VK_API_VERSION_1_3
+};
+```
+
+Most import is `apiVersion`, which tells Vulkan that we want to use Vulkan 1.3. Using a higher api version gives us more features out-of-the box that otherwise would have to be used via extensions. [Vulkan 1.3](https://docs.vulkan.org/refpages/latest/refpages/source/VK_VERSION_1_3.html) is widely supported and adds a lot of features to the Vulkan core that make it easier to use. `pApplicationName` can be used to identify your application.
+
+> **Note:** You'll see the `sType` member a lot when writing Vulkan using the C-API. The driver needs to know what structure type it has to deal with, and with Vulkan being a C-API there is no other way than specifying it via structure member.
+
+The instance also needs to know about the extensions you want to use. As the name implies, these are used to extend the api. As instance creation (and some other things) are platform specific, the instance needs to know what platform specific extensions you want to use. For Windows e.g. you'd use [VK_KHR_win32_surface](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_win32_surface.html) and [VK_KHR_android_surface](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_android_surface.html) for Android. 
+
+That would mean we'd have to write platform specific code. **But** with a library like SFML we don't have to do that, instead we ask SFML for the platform specific instance extensions:
+
+```cpp
+const std::vector<const char*> instanceExtensions{ sf::Vulkan::getGraphicsRequiredInstanceExtensions() };
+```
+
+So no more need to worry about platform specific things. With the application info and the required extensions set up, we can create our instance:
+
+```cpp
+VkInstanceCreateInfo instanceCI{
+	.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+	.pApplicationInfo = &appInfo,
+	.enabledExtensionCount = static_cast<uint32_t>(instanceExtensions.size()),
+	.ppEnabledExtensionNames = instanceExtensions.data(),
+};
+chk(vkCreateInstance(&instanceCI, nullptr, &instance));
+```
+
+This is very simple. We pass our application info and both the names and number of instance extensions that SFML gave us. Calling [`vkCreateInstance`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateInstance.html) creates our instance.
+
+> **Note:** Most Vulkan functions can fail and as such have a return code of type [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html). We use a small inline function called `chk` to check that return code and in case of an error we exit the application. In a real world application you should do more sophisticated error handling.
+
+## Device setup
+
+Now that we have a connection to the Vulkan library, we need to get a handle to the GPU. This is called a **device** in Vulkan. Vulkan distinguishes between physical and logical devices. The former presents the actual device (usually the GPU), the latter presents a handle to that device's Vulkan implementation which the application will interact with.
+
+> **Note:** When dealing with Vulkan a commonly used term is implementation. This refers to something that implements the Vulkan API. Usually it's the driver for your GPU, but it also could be a CPU based software implementation. To keep things simple we'll be using the term GPU for the rest of the tutorial.
+
+First we need to get a list physical devices currently available:
+
+```cpp
+uint32_t deviceCount{ 0 };
+chk(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
+std::vector<VkPhysicalDevice> devices(deviceCount);
+chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
+```
+
+> **Note:** Having to call functions that return some sort of list twice is common in the Vulkan C-API. The first call will return the number of elements, which is then used to properly size the result list. The second call then fills the actual result list.
+
+After the second call to `vkEnumeratePhysicalDevices` we have a list of Vulkan capable devices in `devices`. On most systems this will be one device.
+
+## Preparing to draw
+
+To "draw" something in Vulkan (the correct term would be "present an image") we need a platform specific surface. Thanks to SFML that's dead simple.
+
+We first create a window:
+
+```cpp
+auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
+```
+
+And then 

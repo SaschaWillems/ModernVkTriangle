@@ -105,9 +105,9 @@ int main()
 	volkLoadInstance(instance);
 	// Device
 	uint32_t deviceCount{ 0 };
-	vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
 	std::vector<VkPhysicalDevice> devices(deviceCount);
-	vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
 	const uint32_t qf{ 0 };
 	const float qfpriorities{ 1.0f };
 	const uint32_t deviceIndex{ 0 };
