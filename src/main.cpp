@@ -84,8 +84,6 @@ sf::Vector2i lastMousePos{};
 
 int main()
 {
-	// Setup
-	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "Modern Vulkan Triangle");
 	volkInitialize();
 	// Initialize slang compiler
 	slang::createGlobalSession(slangGlobalSession.writeRef());
@@ -95,8 +93,8 @@ int main()
 	Slang::ComPtr<slang::ISession> slangSession;
 	slangGlobalSession->createSession(desc, slangSession.writeRef());
 	// Instance
-	VkApplicationInfo appInfo{ .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "Modern Vulkan Triangle", .apiVersion = VK_API_VERSION_1_3 };
-	const std::vector<const char*> instanceExtensions{ VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME, };
+	VkApplicationInfo appInfo{ .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "How to Vulkan", .apiVersion = VK_API_VERSION_1_3 };
+	const std::vector<const char*> instanceExtensions{ sf::Vulkan::getGraphicsRequiredInstanceExtensions() };
 	VkInstanceCreateInfo instanceCI{
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pApplicationInfo = &appInfo,
@@ -107,9 +105,9 @@ int main()
 	volkLoadInstance(instance);
 	// Device
 	uint32_t deviceCount{ 0 };
-	vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
 	std::vector<VkPhysicalDevice> devices(deviceCount);
-	vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
 	const uint32_t qf{ 0 };
 	const float qfpriorities{ 1.0f };
 	const uint32_t deviceIndex{ 0 };
@@ -133,6 +131,7 @@ int main()
 	VmaAllocatorCreateInfo allocatorCI{ .physicalDevice = devices[deviceIndex], .device = device, .pVulkanFunctions = &vkFunctions, .instance = instance };
 	chk(vmaCreateAllocator(&allocatorCI, &allocator));
 	// Presentation
+	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
 	chk(window.createVulkanSurface(instance, surface));
 	const VkFormat imageFormat{ VK_FORMAT_B8G8R8A8_SRGB };
 	VkSwapchainCreateInfoKHR swapchainCI{
