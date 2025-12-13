@@ -84,8 +84,6 @@ sf::Vector2i lastMousePos{};
 
 int main()
 {
-	// Setup
-	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "Modern Vulkan Triangle");
 	volkInitialize();
 	// Initialize slang compiler
 	slang::createGlobalSession(slangGlobalSession.writeRef());
@@ -94,9 +92,11 @@ int main()
 	slang::SessionDesc desc{ .targets{targets.data()}, .targetCount{SlangInt(targets.size())}, .defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR, .compilerOptionEntries{options.data()}, .compilerOptionEntryCount{uint32_t(options.size())} };
 	Slang::ComPtr<slang::ISession> slangSession;
 	slangGlobalSession->createSession(desc, slangSession.writeRef());
+	// Window
+	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
 	// Instance
-	VkApplicationInfo appInfo{ .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "Modern Vulkan Triangle", .apiVersion = VK_API_VERSION_1_3 };
-	const std::vector<const char*> instanceExtensions{ VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME, };
+	VkApplicationInfo appInfo{ .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "How to Vulkan", .apiVersion = VK_API_VERSION_1_3 };
+	const std::vector<const char*> instanceExtensions{ sf::Vulkan::getGraphicsRequiredInstanceExtensions() };
 	VkInstanceCreateInfo instanceCI{
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pApplicationInfo = &appInfo,
