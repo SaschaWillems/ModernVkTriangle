@@ -237,7 +237,7 @@ VmaAllocatorCreateInfo allocatorCI{
 chk(vmaCreateAllocator(&allocatorCI, &allocator));
 ```
 
-> **Note:** VMA also uses [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html) return codes, we can use the same `chk` function to check them.
+> **Note:** VMA also uses [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html) return codes, we can use the same `chk` function to check VMA's function results.
 
 ## Window and surface
 
@@ -257,6 +257,48 @@ And then request a Vulkan surface for that window:
 
 ```cpp
 chk(window.createVulkanSurface(instance, surface));
+```
+
+For the following chapter(s) we'll need to know the properties surface we just created, so we get them via [`vkGetPhysicalDeviceSurfaceCapabilitiesKHR`](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetPhysicalDeviceSurfaceCapabilitiesKHR.html) and store it for future reference:
+
+```cpp
+VkSurfaceCapabilitiesKHR surfaceCaps{};
+chk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &surfaceCaps));
+```
+
+## Swapchain
+
+To present something to a surface (in our case, the window) we need to create a swapchain. It's basically a series of images that you enqueue to the presentation engine of the operating system. The [`VkSwapchainCreateInfoKHR`](https://docs.vulkan.org/refpages/latest/refpages/source/VkSwapchainCreateInfoKHR.html) is pretty extensive and requires some explanation.
+
+```cpp
+const VkFormat imageFormat{ VK_FORMAT_B8G8R8A8_SRGB };
+VkSwapchainCreateInfoKHR swapchainCI{
+	.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+	.surface = surface,
+	.minImageCount = 2,
+	.imageFormat = imageFormat,
+	.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+	.imageExtent{ .width = window.getSize().x, .height = window.getSize().y, },
+	.imageArrayLayers = 1,
+	.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+	.queueFamilyIndexCount = queueFamily,
+	.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+	.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+	.presentMode = VK_PRESENT_MODE_FIFO_KHR
+};
+chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
+```
+
+> **Note:** The swapchain setup shown here is a bare minimum. In a real-world application this part can be quite complicated, as you might have to adjust this based on user settings. One example would be HDR capable devices, where you'd need to use a different image format and color space.
+
+Something special about the swapchain is that it's images are not owned by the application, but rather by the swapchain. So instead of explicitly creating these on our own, we request them from the swapchain:
+
+```
+uint32_t imageCount{ 0 };
+vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
+swapchainImages.resize(imageCount);
+vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
+swapchainImageViews.resize(imageCount);
 ```
 
 # Todo

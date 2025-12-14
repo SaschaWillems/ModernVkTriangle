@@ -130,20 +130,23 @@ int main()
 	VmaVulkanFunctions vkFunctions{ .vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr, .vkCreateImage = vkCreateImage };
 	VmaAllocatorCreateInfo allocatorCI{ .physicalDevice = devices[deviceIndex], .device = device, .pVulkanFunctions = &vkFunctions, .instance = instance };
 	chk(vmaCreateAllocator(&allocatorCI, &allocator));
-	// Presentation
+	// Window and surface
 	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
 	chk(window.createVulkanSurface(instance, surface));
+	VkSurfaceCapabilitiesKHR surfaceCaps{};
+	chk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &surfaceCaps));
+	// Swap chain
 	const VkFormat imageFormat{ VK_FORMAT_B8G8R8A8_SRGB };
 	VkSwapchainCreateInfoKHR swapchainCI{
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.surface = surface,
-		.minImageCount = 2,
+		.minImageCount = surfaceCaps.minImageCount,
 		.imageFormat = imageFormat,
 		.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
-		.imageExtent{ .width = window.getSize().x, .height = window.getSize().y, },
+		.imageExtent{ .width = surfaceCaps.currentExtent.width, .height = surfaceCaps.currentExtent.height, },
 		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		.queueFamilyIndexCount = qf,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		.queueFamilyIndexCount = queueFamily,
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR
