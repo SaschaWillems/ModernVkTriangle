@@ -28,7 +28,7 @@ Vulkan is a deliberately explicit api, writing code it can be very verbose. To c
 * [glm](https://github.com/g-truc/glm) - A mathematics library with support for often-used things like matrices and vectors.
 * [dds-ktx](https://github.com/septag/dds-ktx) - Portable single header library for loading images from KTX files. This will be used for loading textures. The official alternative would be [KTX-Software](https://github.com/KhronosGroup/KTX-Software), but it's a large dependency.
 
-> **Note:** None of these are required to work with Vulkan. Some of these are widely used though and make working with Vulkan easier.
+> **Note:** None of these are required to work with Vulkan. Some of them are widely used though and make working with Vulkan easier.
 
 ## Programming language
 
@@ -37,6 +37,14 @@ We'll use C++ 20 mostly for designated initializers. They help with Vulkan's ver
 ## Build system
 
 Our build system will be [CMake](https://cmake.org/). Similar to my approach to writing code, things will be kept as simple as possible with the added benefit of being able to follow this tutorial with a wide variety of C++ compilers and IDEs.
+
+To create build files for your IDE of choice, run CMake in the root folder of the project like this:
+
+```bash
+cmake -B build -G "Visual Studio 17 2022"
+```
+
+This will write a Visual Studio 2022 solution file to the `build` folder. The generator (-G) depends on your IDE, you can find a list of those [here](https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html). As an alternative you can use [cmake-gui](https://cmake.org/cmake/help/latest/manual/cmake-gui.1.html).
 
 ## Shading language
 
