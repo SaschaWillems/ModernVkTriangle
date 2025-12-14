@@ -210,7 +210,7 @@ chk(vkCreateDevice(devices[deviceIndex], &deviceCI, nullptr, &device));
 
 > **Note:** Another Vulkan struct member you're going to see often is `pNext`. This can be used to create a linked list of structures that are passed into a function call. It's often used to pass extension structures. The driver then uses the `sType` member of each structure in that list to identify said structure's type.
 
-We also need a queue to submit our commands to, which we can now request from the device we just created:
+We also need a queue to submit our graphics commands to, which we can now request from the device we just created:
 
 ```cpp
 vkGetDeviceQueue(device, queueFamily, 0, &queue);
@@ -220,7 +220,7 @@ vkGetDeviceQueue(device, queueFamily, 0, &queue);
 
 Vulkan is an explicit API, which also applies to memory management. As noted in the list of libraries we will be using the [Vulkan Memory Allocator (VMA)](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) to simplify this as far as possible.
 
-VMA provides an allocator used to allocate memory from. This needs to be set up for your project. For that we pass in pointers to some common Vulkan functions and the Vulkan instance and device we just created:
+VMA provides an allocator used to allocate memory from. This needs to be set up for your project once. For that we pass in pointers to some common Vulkan functions, our Vulkan instance and device:
 
 ```cpp
 VmaVulkanFunctions vkFunctions{
@@ -237,19 +237,27 @@ VmaAllocatorCreateInfo allocatorCI{
 chk(vmaCreateAllocator(&allocatorCI, &allocator));
 ```
 
-> **Note:** VMA also uses [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html) return codes, we can use the same `chK` for it's function calls.
+> **Note:** VMA also uses [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html) return codes, we can use the same `chk` function to check them.
 
-## Preparing to draw
+## Window and surface
 
-To "draw" something in Vulkan (the correct term would be "present an image") we need a platform specific surface. Thanks to SFML that's dead simple.
+To "draw" something in Vulkan (the correct term would be "present an image", more on that later) we need a surface. Most of the time, a surface is taken from a window. Creating both is platform specific, as mentioned in the [instance chapter](#instance-setup). So in theory, this *would* require us to write different code paths for all platform we want to support (Windows, Linux, Android, etc.).
 
-We first create a window:
+But that's where libraries like SFML come into play. They take care of all the platform specifics for us, so that part becomes dead simple.
+
+> **Note:** Libraries like SFML, gflw or SDL also take care of other platform specific functionality like input, audio and networking (to a varying degree).
+
+First we create a window:
 
 ```cpp
 auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
 ```
 
-And then 
+And then request a Vulkan surface for that window:
+
+```cpp
+chk(window.createVulkanSurface(instance, surface));
+```
 
 # Todo
 
