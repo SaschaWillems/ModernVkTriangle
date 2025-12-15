@@ -309,6 +309,75 @@ vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
 swapchainImageViews.resize(imageCount);
 ```
 
-# Todo
+## Intermediate render image
+
+This part is actually not required to get something displayed on screen. But it's common to not directly render to the swapchain but rather have an application-owned image in between. This lets us do stuff like additional post-processing, or in our case [multisampling](https://docs.vulkan.org/spec/latest/chapters/primsrast.html#primsrast-multisampling).
+
+> **Note:** If you wanted to skip this, you would replace the `imageView` in the `colorAttachmentInfo` with the view from the current swapchain image index and leave `resolveImageView` empty.
+
+ As the name suggests, multi sampling works on taking multiple samples for the same fragment and averaging them to smooth out edges. So first we specify how many samples we want to use:
+
+```cpp
+const VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_4_BIT;
+```
+
+The properties of the intermediate image are defined via a [`VkImageCreateInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageCreateInfo.html) structure. Some of these are known from the swapchain creation:
+
+```cpp
+VkImageCreateInfo renderImageCI{
+	.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+	.imageType = VK_IMAGE_TYPE_2D,
+	.format = imageFormat,
+	.extent{.width = window.getSize().x, .height = window.getSize().y, .depth = 1 },
+	.mipLevels = 1,
+	.arrayLayers = 1,
+	.samples = sampleCount,
+	.tiling = VK_IMAGE_TILING_OPTIMAL,
+	.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+	.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+};
+```
+
+The image is 2D, uses the same format as the swapchain and has the same size (extent). We don't need multiple mips as the image is always the same size as the window and also only use one layer. Layers can be e.g. used for stereoscopic rendering (VR). To make sure the image is stored in a format best suited for the GPU, we use optimal tiling with [`VK_IMAGE_TILING_OPTIMAL`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html). We also need to state our desired usage cases for the image, in our case that's [`VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageUsageFlagBits.html) as we'll use this image as the color attachment for our render output (more on that later). The initial layout defines [`VK_IMAGE_LAYOUT_UNDEFINED`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageLayout.html) tells the GPU that this image does not have any contents right now. 
+
+This is also the first time we'll use VMA to allocate something in Vulkan. Memory allocation for buffers and images in Vulkan is verbose yet often very similar. With VMA we can do away with a lot of that. VMA also takes care of selecting the correct memory types and usage flags, something that would otherwise require a lot of code to get proper.
+
+```cpp
+VmaAllocationCreateInfo allocCI{
+	.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+	.usage = VMA_MEMORY_USAGE_AUTO
+};
+vmaCreateImage(allocator, &renderImageCI, &allocCI, &renderImage, &renderImageAllocation, nullptr);
+```
+
+One thing that makes VMA so convenient is [`VMA_MEMORY_USAGE_AUTO`](https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/choosing_memory_type.html). This usage flag will have VMA select the required usage flags automatically based on the other values you pass in for the allocation and/or buffer create info. There are some cases where you might be better off explicitly stating usage flags, but in most cases, the auto flag ist he perfect fit. The `VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT` flag tells VMA to create a separate memory allocation for this resource, which is recommended for e.g. large image attachments.
+
+> **Note:** We only need a single image, even though we'll be doing some sort of double buffering. That's because the image is only every accessed by the GPU and the GPU can only ever write to a single image at a time. This differs from resources shared by the CPU and the GPU, but more on that later.
+
+Images in Vulkan are not accessed directly, but rather through [views](https://docs.vulkan.org/spec/latest/chapters/resources.html#VkImageView), a common concept in programming. This adds flexibility and allows different access patterns for the same image.
+
+```cpp
+VkImageViewCreateInfo viewCI{
+	.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+	.image = renderImage,
+	.viewType = VK_IMAGE_VIEW_TYPE_2D,
+	.format = imageFormat,
+	.subresourceRange = {
+		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.levelCount = 1,
+		.layerCount = 1
+		}
+	};
+chk(vkCreateImageView(device, &viewCI, nullptr, &renderImageView));
+```
+
+We want a view to the image we just created and we want to access it as a 2D view. The `subresourceRange` contains the part of the image we want to access via the view. So for images with multiple layers or (mip) levels you could do separate image views to any of these and access an image in different ways. The `aspectMask` refers to the aspect of the image that the view accesses. This can be depth, stencil or (in our case) the color part of the image.
+
+With both the image and the image view created our intermediate render image is now ready to be used later on for rendering.
+
+# Todos
 
 - Command buffer : Work items have to be "compiled" into command buffers and submitted to queues. E.g. used to create command buffers on multiple threads
+- Validation: Use vkconfig from the SDK
+- Spelling and wording
+- Explanation of struct members before or after code?
