@@ -4,7 +4,7 @@
 
 This repository and the accompanying tutorial demonstrate how to write a "modern" Vulkan application in 2025. The goal is to use as little code as possible for displaying something that's more than just a basic colored triangle. 
 
-Vulkan has been released almost 10 years ago, and a lot has changed. Version 1.0 had to make many concessions to support a broad range of GPUs across desktop and mobile. Some of the initial concepts turned out to be not so optimal, e.g. render passes, and have been replaced by alternatives. Not only did the api mature, but so did the ecosystem giving us e.g. new options for writing shaders in languages different than GLSL.
+Vulkan has been released almost 10 years ago, and a lot has changed. Version 1.0 had to make many concessions to support a broad range of GPUs across desktop and mobile. Some of the initial concepts like render passes turned out to be not so optimal, and have been replaced by alternatives. Not only did the API mature, but so did the ecosystem giving us e.g. new options for writing shaders in languages different than GLSL.
 
 And so for this tutorial we will be using Vulkan 1.3 as a baseline. This gives us access to (almost all) features that make Vulkan easier to use while still supporting a wide range of GPUs.
 
@@ -12,7 +12,7 @@ tl;dr: Doing Vulkan in 2025 can be very different from doing Vulkan in 2016. Tha
 
 ## Target audience
 
-The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (in an afternoon). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). You should bring at least basic knowledge of C/C++ and graphics programming concepts are required.
+The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (possibly in a single afternoon). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). You should bring at least basic knowledge of C/C++ and realtime graphics concepts.
 
 ## Goal
 
@@ -20,25 +20,25 @@ At the end of this tutorial we'll see a textured quad on screen that can be rota
 
 ## Libraries
 
-Vulkan is a deliberately explicit api, writing code it can be very verbose. To concentrate on the interesting parts we'll be using several libraries.
+Vulkan is a deliberately explicit API, writing code for it can be very verbose. To concentrate on the interesting parts we'll be using the following libraries:
 
-* [SFML](https://www.sfml-dev.org/) - Windowing and input (among other things not used in this tutorial). Without a library like this we would have to write platform specific code for these. Alternatives are [glfw](https://www.glfw.org/) and [SDL](https://www.libsdl.org/).
-* [Volk](https://github.com/zeux/volk) - Meta-loader for Vulkan that simplifies loading of Vulkan functions.
-* [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) - Simplifies dealing with memory allocations. Removes some of the verbosity around Vulkan's memory management.
-* [glm](https://github.com/g-truc/glm) - A mathematics library with support for often-used things like matrices and vectors.
+* [SFML](https://www.sfml-dev.org/) - Windowing and input (among other things not used in this tutorial). Without a library like this we would have to write a lot of platform specific code. Alternatives are [glfw](https://www.glfw.org/) and [SDL](https://www.libsdl.org/).
+* [Volk](https://github.com/zeux/volk) - Meta-loader that simplifies loading of Vulkan functions.
+* [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) - Simplifies dealing with memory allocations. Removes some of the verbosity around memory management.
+* [glm](https://github.com/g-truc/glm) - A mathematics library with support for things like matrices and vectors.
 * [dds-ktx](https://github.com/septag/dds-ktx) - Portable single header library for loading images from KTX files. This will be used for loading textures. The official alternative would be [KTX-Software](https://github.com/KhronosGroup/KTX-Software), but it's a large dependency.
 
-> **Note:** None of these are required to work with Vulkan. Some of them are widely used though and make working with Vulkan easier.
+> **Note:** None of these are required to work with Vulkan. They making working with Vulkan easier though and some like VMA and Volk are widely used.
 
 ## Programming language
 
-We'll use C++ 20 mostly for designated initializers. They help with Vulkan's verbosity and make it easier to read Vulkan code. Aside from that we won't be using any modern language features and also work with the C (not the [C++](https://github.com/KhronosGroup/Vulkan-Hpp)) Vulkan headers. Aside from personal preferences this is to make this as as approachable as possible, even for people that don't work with C++.
+We'll use C++ 20, mostly it's designated initializers. They help with Vulkan's verbosity and improve code readability. Aside from that we won't be using any modern language features and also work with the C Vulkan headers instead of the [C++](https://github.com/KhronosGroup/Vulkan-Hpp) ones. Aside from personal preferences this is done to make this tutorial as approachable as possible, even for people that don't work with C++.
 
 ## Build system
 
 Our build system will be [CMake](https://cmake.org/). Similar to my approach to writing code, things will be kept as simple as possible with the added benefit of being able to follow this tutorial with a wide variety of C++ compilers and IDEs.
 
-To create build files for your IDE of choice, run CMake in the root folder of the project like this:
+To create build files for your IDE, run CMake in the root folder of the project like this:
 
 ```bash
 cmake -B build -G "Visual Studio 17 2022"
@@ -48,13 +48,13 @@ This will write a Visual Studio 2022 solution file to the `build` folder. The ge
 
 ## Shading language
 
-Vulkan does consume shaders in an intermediate format [SPIR-V](https://www.khronos.org/spirv/). This decouples the api from the actual shading language. Initially only GLSL was supported, but in 2025 there are more and better options. One of those is [Slang](https://github.com/shader-slang) and that's what we'll be using for this tutorial. The language itself is more modern than GLSL and offers some convenient features.
+Vulkan does consume shaders in an intermediate format [SPIR-V](https://www.khronos.org/spirv/). This decouples the API from the actual shading language. Initially only GLSL was supported, but in 2025 there are more and better options. One of those is [Slang](https://github.com/shader-slang) and that's what we'll be using for this tutorial. The language itself is more modern than GLSL and offers some convenient features.
 
 ## The shader
 
-Slang lets us put all shader stages into a single file. That removes the need to duplicate the shader interface or having to put that into shared includes. It also makes it easy to read (and edit) the shader.
+Slang lets us put all shader stages into a single file. That removes the need to duplicate the shader interface or having to put that into shared includes. It also makes it easier to read (and edit) the shader.
 
-Our shader will be pretty simple. We have a vertex shader (`[shader("vertex")]`) and a fragment shader (`[shader("fragment")]`). The `VSInput` structure that is passed to the main function of the vertex shader passes the vertex attributes from the application into said shader.`ConstantBuffer<UBO>` maps the uniform data containing our model-view-projection matrix. The vertex shader transforms the vertex data with that and uses `VSOutput` to pass that to the fragment shader. That shader then uses `samplerTexture` to sample from the texture and writes to the color attachment.
+Our shader will be pretty simple. We have a vertex shader (`[shader("vertex")]`) and a fragment shader (`[shader("fragment")]`). The `VSInput` structure that is passed to the main function of the vertex shader passes the vertex attributes from the application into said shader.`ConstantBuffer<UBO>` maps the uniform data containing our model-view-projection matrix. The vertex shader transforms the vertex data with that and uses `VSOutput` to pass that to the fragment shader. That then uses `samplerTexture` to sample from the texture and writes to the color attachment.
 
 
 ```slang
@@ -105,9 +105,11 @@ VkApplicationInfo appInfo{
 
 Most import is `apiVersion`, which tells Vulkan that we want to use Vulkan 1.3. Using a higher api version gives us more features out-of-the box that otherwise would have to be used via extensions. [Vulkan 1.3](https://docs.vulkan.org/refpages/latest/refpages/source/VK_VERSION_1_3.html) is widely supported and adds a lot of features to the Vulkan core that make it easier to use. `pApplicationName` can be used to identify your application.
 
-> **Note:** You'll see the `sType` member a lot when writing Vulkan using the C-API. The driver needs to know what structure type it has to deal with, and with Vulkan being a C-API there is no other way than specifying it via structure member.
+> **Note:** A structure member you'll see a lot is `sType`. The driver needs to know what structure type it has to deal with, and with Vulkan being a C-API there is no other way than specifying it via structure member.
 
-The instance also needs to know about the extensions you want to use. As the name implies, these are used to extend the api. As instance creation (and some other things) are platform specific, the instance needs to know what platform specific extensions you want to use. For Windows e.g. you'd use [VK_KHR_win32_surface](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_win32_surface.html) and [VK_KHR_android_surface](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_android_surface.html) for Android. 
+The instance also needs to know about the extensions you want to use. As the name implies, these are used to extend the API. As instance creation (and some other things) are platform specific, the instance needs to know what platform specific extensions you want to use. For Windows e.g. you'd use [VK_KHR_win32_surface](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_win32_surface.html) and [VK_KHR_android_surface](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_android_surface.html) for Android and so on for other platforms.
+
+> **Note:** There are two extension types in Vulkan. Instance and device extensions. The former are mostly global, often platform specific extensions independent of your GPU, the latter are based on your GPU's capabilities.
 
 That would mean we'd have to write platform specific code. **But** with a library like SFML we don't have to do that, instead we ask SFML for the platform specific instance extensions:
 
@@ -116,8 +118,6 @@ const std::vector<const char*> instanceExtensions{ sf::Vulkan::getGraphicsRequir
 ```
 
 So no more need to worry about platform specific things. With the application info and the required extensions set up, we can create our instance:
-
-> **Note:** There are two extension types in Vulkan. Instance and device extensions. The former are mostly global, often platform specific extensions independent of your GPU, the latter are based on your GPU's capabilities.
 
 ```cpp
 VkInstanceCreateInfo instanceCI{
@@ -129,13 +129,13 @@ VkInstanceCreateInfo instanceCI{
 chk(vkCreateInstance(&instanceCI, nullptr, &instance));
 ```
 
-This is very simple. We pass our application info and both the names and number of instance extensions that SFML gave us. Calling [`vkCreateInstance`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateInstance.html) creates our instance.
+This is very simple. We pass our application info and both the names and number of instance extensions that SFML gave us (for the platform we're compiling for). Calling [`vkCreateInstance`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateInstance.html) creates our instance.
 
 > **Note:** Most Vulkan functions can fail and as such have a return code of type [`VkResult`](https://docs.vulkan.org/refpages/latest/refpages/source/VkResult.html). We use a small inline function called `chk` to check that return code and in case of an error we exit the application. In a real-world application you should do more sophisticated error handling.
 
 ## Queues
 
-In Vulkan, work is not directly submitted to a device but rather to a queue. A queue abstracts access to a piece of hardware (graphics, compute, transfer, video, etc.). They are organized in queue families, which each family describing a set of queues with common functionality. Available queue types differ between GPUs. We'll only do graphics operations, so we need to just find one suitable queue family with graphics support. This is done by checking for the [`VK_QUEUE_GRAPHICS_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkQueueFlagBits.html) flag:
+In Vulkan, work is not directly submitted to a device but rather to a queue. A queue abstracts access to a piece of hardware (graphics, compute, transfer, video, etc.). They are organized in queue families, with each family describing a set of queues with common functionality. Available queue types differ between GPUs. As we'll only do graphics operations, we need to just find one queue family with graphics support. This is done by checking for the [`VK_QUEUE_GRAPHICS_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkQueueFlagBits.html) flag:
 
 ```cpp
 uint32_t queueFamilyCount{ 0 };
@@ -151,7 +151,7 @@ for (size_t i = 0; i < queueFamilies.size(); i++) {
 }
 ```
 
-> **Note:** In the real world you'll rarely find GPUs that don't have a queue family that supports graphics. Also most of the time the first queue family supports both graphics and compute (as well as presentation, but that follows at a later point).
+> **Note:** In the real world you'll rarely find GPUs that don't have a queue family that supports graphics. Also most of the time the first queue family supports both graphics and compute (as well as presentation, more on that later).
 
 For our next step we need to reference that queue family using a [`VkDeviceQueueCreateInfo´](https://docs.vulkan.org/refpages/latest/refpages/source/VkDeviceQueueCreateInfo.html). While we don't do that, it's possible to request multiple queues from the same family. That's why we need to specify priorities in `pQueuePriorities` (in our case just one). With multiple queues from the same family, a driver might use that information to prioritize work:
 
@@ -311,5 +311,4 @@ swapchainImageViews.resize(imageCount);
 
 # Todo
 
-- Queues: Work needs to be submitted to queues. They abstract hardware, explain e.g. compute only queue
 - Command buffer : Work items have to be "compiled" into command buffers and submitted to queues. E.g. used to create command buffers on multiple threads
