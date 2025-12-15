@@ -37,7 +37,6 @@ static inline void chk(bool result) {
 }
 
 const uint32_t maxFramesInFlight{ 2 };
-const VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_4_BIT;
 uint32_t imageIndex{ 0 };
 uint32_t frameIndex{ 0 };
 VkInstance instance{ VK_NULL_HANDLE };
@@ -104,28 +103,40 @@ int main()
 	chk(vkCreateInstance(&instanceCI, nullptr, &instance));
 	volkLoadInstance(instance);
 	// Device
+	const uint32_t deviceIndex{ 0 };
 	uint32_t deviceCount{ 0 };
 	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
 	std::vector<VkPhysicalDevice> devices(deviceCount);
 	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
-	const uint32_t qf{ 0 };
+	// Find a queue family for graphics
+	uint32_t queueFamilyCount{ 0 };
+	vkGetPhysicalDeviceQueueFamilyProperties(devices[deviceIndex], &queueFamilyCount, nullptr);
+	std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(devices[deviceIndex], &queueFamilyCount, queueFamilies.data());
+	uint32_t queueFamily{ 0 };
+	for (size_t i = 0; i < queueFamilies.size(); i++) {
+		if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+			queueFamily = i;
+			break;
+		}
+	}
+	// Logical device
 	const float qfpriorities{ 1.0f };
-	const uint32_t deviceIndex{ 0 };
-	VkDeviceQueueCreateInfo queueCI{ .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = qf, .queueCount = 1, .pQueuePriorities = &qfpriorities };
-	VkPhysicalDeviceVulkan13Features features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .dynamicRendering = true };
+	VkDeviceQueueCreateInfo queueCI{ .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = queueFamily, .queueCount = 1, .pQueuePriorities = &qfpriorities };
+	const VkPhysicalDeviceVulkan13Features enabledVk13Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .dynamicRendering = true };
 	const std::vector<const char*> deviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
-	const VkPhysicalDeviceFeatures enabledFeatures{ .samplerAnisotropy = VK_TRUE };
+	const VkPhysicalDeviceFeatures enabledVk10Features{ .samplerAnisotropy = VK_TRUE };
 	VkDeviceCreateInfo deviceCI{
 		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		.pNext = &features,
+		.pNext = &enabledVk13Features,
 		.queueCreateInfoCount = 1,
 		.pQueueCreateInfos = &queueCI,
 		.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size()),
 		.ppEnabledExtensionNames = deviceExtensions.data(),
-		.pEnabledFeatures = &enabledFeatures
+		.pEnabledFeatures = &enabledVk10Features
 	};
 	chk(vkCreateDevice(devices[deviceIndex], &deviceCI, nullptr, &device));
-	vkGetDeviceQueue(device, qf, 0, &queue);
+	vkGetDeviceQueue(device, queueFamily, 0, &queue);
 	// VMA
 	VmaVulkanFunctions vkFunctions{ .vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr, .vkCreateImage = vkCreateImage };
 	VmaAllocatorCreateInfo allocatorCI{ .physicalDevice = devices[deviceIndex], .device = device, .pVulkanFunctions = &vkFunctions, .instance = instance };
@@ -157,6 +168,8 @@ int main()
 	swapchainImages.resize(imageCount);
 	vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
 	swapchainImageViews.resize(imageCount);
+	// Render target image
+	const VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_4_BIT;
 	VkImageCreateInfo renderImageCI{
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
@@ -166,10 +179,10 @@ int main()
 		.arrayLayers = 1,
 		.samples = sampleCount,
 		.tiling = VK_IMAGE_TILING_OPTIMAL,
-		.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+		.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	};
-	VmaAllocationCreateInfo allocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO, .priority = 1.0f };
+	VmaAllocationCreateInfo allocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 	vmaCreateImage(allocator, &renderImageCI, &allocCI, &renderImage, &renderImageAllocation, nullptr);
 	VkImageViewCreateInfo viewCI{ .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = renderImage, .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = imageFormat, .subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 } };
 	chk(vkCreateImageView(device, &viewCI, nullptr, &renderImageView));
@@ -189,7 +202,7 @@ int main()
 	memcpy(bufferPtr, vertices.data(), vBufSize);
 	memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 	vmaUnmapMemory(allocator, vBufferAllocation);
-	VkCommandPoolCreateInfo commandPoolCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = qf };
+	VkCommandPoolCreateInfo commandPoolCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = queueFamily };
 	chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
 	// Descriptor pool
 	VkDescriptorPoolSize poolSizes[2]{ { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = maxFramesInFlight }, {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 } };
@@ -223,7 +236,7 @@ int main()
 	for (auto& semaphore : renderSemaphores) {
 		chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &semaphore));
 	}
-	// Image
+	// Texture image
 	std::ifstream ktxFile("assets/vulkan.ktx", std::ios::binary | std::ios::ate);
 	assert(ktxFile.is_open());
 	size_t ktxSize = ktxFile.tellg();
@@ -232,7 +245,7 @@ int main()
 	ktxFile.read(ktxData, ktxSize);
 	ddsktx_texture_info tc = { 0 };
 	ddsktx_parse(&tc, ktxData, ktxSize, nullptr);
-	VmaAllocationCreateInfo uImageAllocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO, .priority = 1.0f };
+	VmaAllocationCreateInfo uImageAllocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 	VkImageCreateInfo texImgCI{
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
@@ -495,7 +508,7 @@ int main()
 				}
 				swapchainImageViews.resize(imageCount);
 				renderImageCI.extent = { .width = static_cast<uint32_t>(window.getSize().x), .height = static_cast<uint32_t>(window.getSize().y), .depth = 1 };
-				VmaAllocationCreateInfo allocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO, .priority = 1.0f };
+				VmaAllocationCreateInfo allocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 				chk(vmaCreateImage(allocator, &renderImageCI, &allocCI, &renderImage, &renderImageAllocation, nullptr));
 				VkImageViewCreateInfo viewCI{ .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = renderImage, .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = imageFormat, .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 } };
 				chk(vkCreateImageView(device, &viewCI, nullptr, &renderImageView));
