@@ -8,6 +8,7 @@
 #define VOLK_IMPLEMENTATION
 #include <volk/volk.h>
 #include <vector>
+#include <array>
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -36,7 +37,7 @@ static inline void chk(bool result) {
 	}
 }
 
-const uint32_t maxFramesInFlight{ 2 };
+constexpr uint32_t maxFramesInFlight{ 2 };
 uint32_t imageIndex{ 0 };
 uint32_t frameIndex{ 0 };
 VkInstance instance{ VK_NULL_HANDLE };
@@ -52,9 +53,9 @@ VmaAllocation renderImageAllocation;
 VkImageView renderImageView;
 std::vector<VkImage> swapchainImages;
 std::vector<VkImageView> swapchainImageViews;
-std::vector<VkCommandBuffer> commandBuffers(maxFramesInFlight);
-std::vector<VkFence> fences(maxFramesInFlight);
-std::vector<VkSemaphore> presentSemaphores(maxFramesInFlight);
+std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
+std::array<VkFence, maxFramesInFlight> fences;
+std::array<VkSemaphore, maxFramesInFlight> presentSemaphores;
 std::vector<VkSemaphore> renderSemaphores;
 VmaAllocator allocator{ VK_NULL_HANDLE };
 VmaAllocation vBufferAllocation{ VK_NULL_HANDLE };
@@ -65,7 +66,7 @@ struct UniformBuffers {
 	VkDescriptorSet descriptorSet{ VK_NULL_HANDLE };
 	void* mapped{ nullptr };
 };
-std::vector<UniformBuffers> uniformBuffers(maxFramesInFlight);
+std::array<UniformBuffers, maxFramesInFlight> uniformBuffers;
 VkDescriptorSetLayout descriptorSetLayout{ VK_NULL_HANDLE };
 VkDescriptorPool descriptorPool{ VK_NULL_HANDLE };
 struct Texture {
@@ -78,7 +79,8 @@ struct Texture {
 Texture texture;
 VkDescriptorSetLayout descriptorSetLayoutTex{ VK_NULL_HANDLE };
 Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
-glm::vec3 rotation{ 0.0f };
+glm::vec3 camRotation{ 0.0f };
+glm::vec3 camPos{ 0.0f, 0.0f, -2.0f };
 sf::Vector2i lastMousePos{};
 
 int main()
@@ -395,8 +397,8 @@ int main()
 		vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
 		auto cb = commandBuffers[frameIndex];
 		// Update UBO
-		glm::quat rotQ = glm::quat(rotation);
-		const glm::mat4 modelmat = glm::translate(glm::mat4(1.0f), { 0.0f, 0.0f, -2.0f }) * glm::mat4_cast(rotQ);
+		glm::quat rotQ = glm::quat(camRotation);
+		const glm::mat4 modelmat = glm::translate(glm::mat4(1.0f), camPos) * glm::mat4_cast(rotQ);
 		const glm::mat4 mvp = glm::perspective(glm::radians(75.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f) * modelmat;
 		memcpy(uniformBuffers[frameIndex].mapped, &mvp, sizeof(glm::mat4));
 		// Build CB
@@ -477,8 +479,7 @@ int main()
 			.pImageIndices = &imageIndex
 		};
 		chk(vkQueuePresentKHR(queue, &presentInfo));
-		frameIndex++;
-		if (frameIndex >= maxFramesInFlight) { frameIndex = 0; }
+		frameIndex = (frameIndex + 1) % maxFramesInFlight;
 		while (const std::optional event = window.pollEvent())
 		{
 			if (event->is<sf::Event::Closed>()) {
@@ -487,12 +488,14 @@ int main()
 			if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>()) {
 				if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
 					auto delta = lastMousePos - mouseMoved->position;
-					rotation.x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
-					rotation.y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
+					camRotation.x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
+					camRotation.y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
 				}
 				lastMousePos = mouseMoved->position;
 			}
-			if (event->is<sf::Event::Resized>()) {
+			if (const auto* mouseWheelScrolled = event->getIf<sf::Event::MouseWheelScrolled>()) {
+				camPos.z += (float)mouseWheelScrolled->delta * 0.025f * (float)elapsed.asMilliseconds();
+			}
 				vkDeviceWaitIdle(device);
 				swapchainCI.oldSwapchain = swapchain;
 				swapchainCI.imageExtent = { .width = static_cast<uint32_t>(window.getSize().x), .height = static_cast<uint32_t>(window.getSize().y) };
