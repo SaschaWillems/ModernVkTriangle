@@ -46,6 +46,14 @@ cmake -B build -G "Visual Studio 17 2022"
 
 This will write a Visual Studio 2022 solution file to the `build` folder. The generator (-G) depends on your IDE, you can find a list of those [here](https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html). As an alternative you can use [cmake-gui](https://cmake.org/cmake/help/latest/manual/cmake-gui.1.html).
 
+## Validation layers
+
+Vulkan was designed to minimize driver overhead. While that *can* result in better performance, it also removes many of the safeguards that APIs like OpenGL had and puts that responsibility into your hands. If you misuse Vulkan the driver is free to crash. So even if your app works on one GPU, it doesn't guarantee that it works on others. On the other hand, the Vulkan specification defines valid usages for all functionality. And with the [validation layers](https://github.com/KhronosGroup/Vulkan-ValidationLayers), an easy-to-use tool to check for that exists. 
+
+Validation layers can be enabled in code, but the easier option is to download the [LunarG Vulkan SDK](https://vulkan.lunarg.com/sdk/home) and enable the layers via the [Vulkan Configurator GUI](https://vulkan.lunarg.com/doc/view/latest/windows/vkconfig.html). Once they're enabled, any improper use of the API will be logged to the command line window of our application.
+
+> **Note:** You should always have the validation layers enabled when developing with Vulkan. This makes sure you write spec-compliant code that properly works on other systems.
+
 ## Shading language
 
 Vulkan does consume shaders in an intermediate format [SPIR-V](https://www.khronos.org/spirv/). This decouples the API from the actual shading language. Initially only GLSL was supported, but in 2025 there are more and better options. One of those is [Slang](https://github.com/shader-slang) and that's what we'll be using for this tutorial. The language itself is more modern than GLSL and offers some convenient features.
