@@ -1,14 +1,20 @@
-# How to Vulkan (in 2025)
+
+<!--
+Copyright (c) 2025, Sascha Willems
+SPDX-License-Identifier: MIT
+-->
+
+# How to Vulkan in 202X
 
 ## About
 
-This repository and the accompanying tutorial demonstrate how to write a "modern" Vulkan application in 2025. The goal is to use as little code as possible for displaying something that's more than just a basic colored triangle. 
+This repository and the accompanying tutorial demonstrate how to write a "modern" Vulkan application in 202X. The goal is to use as little code as possible for displaying something that's more than just a basic colored triangle. 
 
 Vulkan has been released almost 10 years ago, and a lot has changed. Version 1.0 had to make many concessions to support a broad range of GPUs across desktop and mobile. Some of the initial concepts like render passes turned out to be not so optimal, and have been replaced by alternatives. Not only did the API mature, but so did the ecosystem giving us e.g. new options for writing shaders in languages different than GLSL.
 
 And so for this tutorial we will be using Vulkan 1.3 as a baseline. This gives us access to (almost all) features that make Vulkan easier to use while still supporting a wide range of GPUs.
 
-tl;dr: Doing Vulkan in 2025 can be very different from doing Vulkan in 2016. That's what I hope to show with this.
+tl;dr: Doing Vulkan in 202X can be very different from doing Vulkan in 2016. That's what I hope to show with this.
 
 ## Target audience
 
@@ -16,7 +22,7 @@ The tutorial is focused on writing actual Vulkan code and getting things up and 
 
 ## Goal
 
-At the end of this tutorial we'll see a textured quad on screen that can be rotated using the mouse. We also use multi-sampling so we can demonstrate how to use an intermediate render image. All of this will be done in a single source file with a few hundred lines of code, no abstraction, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
+At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
 
 ## Libraries
 
@@ -284,7 +290,7 @@ chk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(devices[deviceIndex], surface, &su
 
 ## Swapchain
 
-To present something to a surface (in our case, the window) we need to create a swapchain. It's basically a series of images that you enqueue to the presentation engine of the operating system. The [`VkSwapchainCreateInfoKHR`](https://docs.vulkan.org/refpages/latest/refpages/source/VkSwapchainCreateInfoKHR.html) is pretty extensive and requires some explanation.
+To visually present something to a surface (in our case, the window) we need to create a swapchain. It's basically a series of images that you enqueue to the presentation engine of the operating system. The [`VkSwapchainCreateInfoKHR`](https://docs.vulkan.org/refpages/latest/refpages/source/VkSwapchainCreateInfoKHR.html) is pretty extensive and requires some explanation.
 
 ```cpp
 const VkFormat imageFormat{ VK_FORMAT_B8G8R8A8_SRGB };
@@ -316,37 +322,30 @@ swapchainImages.resize(imageCount);
 vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
 swapchainImageViews.resize(imageCount);
 ```
+## Depth attachment
 
-## Intermediate render image
+The swapchain images give us a way of storing color values. But we'll render three-dimensional objects and want make sure they're properly displayed, no matter from what perspective you look at them, or in which order their triangles are rasterized. That's done via [depth testing](https://docs.vulkan.org/spec/latest/chapters/fragops.html#fragops-depth) and to use that we need to have a depth attachment.
 
-This part is actually not required to get something displayed on screen. But it's common to not directly render to the swapchain but rather have an application-owned image in between. This lets us do stuff like additional post-processing, or in our case [multisampling](https://docs.vulkan.org/spec/latest/chapters/primsrast.html#primsrast-multisampling).
-
-> **Note:** If you wanted to skip this, you would replace the `imageView` in the `colorAttachmentInfo` with the view from the current swapchain image index and leave `resolveImageView` empty.
-
- As the name suggests, multi sampling works on taking multiple samples for the same fragment and averaging them to smooth out edges. So first we specify how many samples we want to use:
+The properties of the depth image are defined in a [`VkImageCreateInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageCreateInfo.html) structure. Some of these are similar to those found at swapchain creation:
 
 ```cpp
-const VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_4_BIT;
-```
-
-The properties of the intermediate image are defined via a [`VkImageCreateInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageCreateInfo.html) structure. Some of these are known from the swapchain creation:
-
-```cpp
-VkImageCreateInfo renderImageCI{
+const VkFormat depthFormat{ VK_FORMAT_D24_UNORM_S8_UINT };
+VkImageCreateInfo depthImageCI{
 	.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 	.imageType = VK_IMAGE_TYPE_2D,
-	.format = imageFormat,
+	.format = depthFormat,
 	.extent{.width = window.getSize().x, .height = window.getSize().y, .depth = 1 },
 	.mipLevels = 1,
 	.arrayLayers = 1,
-	.samples = sampleCount,
+	.samples = VK_SAMPLE_COUNT_1_BIT,
 	.tiling = VK_IMAGE_TILING_OPTIMAL,
-	.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+	.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 	.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 };
-```
+```	
+> **Note:** We use a fixed depth format (`VK_FORMAT_D24_UNORM_S8_UINT`). This is a [mandatory format](https://docs.vulkan.org/spec/latest/chapters/formats.html#features-required-format-support) meaning it's supported in every Vulkan implementation.
 
-The image is 2D, uses the same format as the swapchain and has the same size (extent). We don't need multiple mips as the image is always the same size as the window and also only use one layer. Layers can be e.g. used for stereoscopic rendering (VR). To make sure the image is stored in a format best suited for the GPU, we use optimal tiling with [`VK_IMAGE_TILING_OPTIMAL`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html). We also need to state our desired usage cases for the image, in our case that's [`VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageUsageFlagBits.html) as we'll use this image as the color attachment for our render output (more on that later). The initial layout defines [`VK_IMAGE_LAYOUT_UNDEFINED`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageLayout.html) tells the GPU that this image does not have any contents right now. 
+The image is 2D and uses a format with support for depth. We don't need multiple mip levels or Layers. Using optimal tiling with [`VK_IMAGE_TILING_OPTIMAL`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html) makes sure the image is stored in a format best suited for the GPU. We also need to state our desired usage cases for the image, which is [`VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageUsageFlagBits.html) as we'll use it as the depth attachment for our render output (more on that later). The initial layout defines the image's content, which we don't have to care about, so we set that to[`VK_IMAGE_LAYOUT_UNDEFINED`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageLayout.html).
 
 This is also the first time we'll use VMA to allocate something in Vulkan. Memory allocation for buffers and images in Vulkan is verbose yet often very similar. With VMA we can do away with a lot of that. VMA also takes care of selecting the correct memory types and usage flags, something that would otherwise require a lot of code to get proper.
 
@@ -355,37 +354,40 @@ VmaAllocationCreateInfo allocCI{
 	.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
 	.usage = VMA_MEMORY_USAGE_AUTO
 };
-vmaCreateImage(allocator, &renderImageCI, &allocCI, &renderImage, &renderImageAllocation, nullptr);
-```
+vmaCreateImage(allocator, &depthImageCI, &allocCI, &depthImage, &depthImageAllocation, nullptr);
+```	
 
 One thing that makes VMA so convenient is [`VMA_MEMORY_USAGE_AUTO`](https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/choosing_memory_type.html). This usage flag will have VMA select the required usage flags automatically based on the other values you pass in for the allocation and/or buffer create info. There are some cases where you might be better off explicitly stating usage flags, but in most cases, the auto flag ist he perfect fit. The `VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT` flag tells VMA to create a separate memory allocation for this resource, which is recommended for e.g. large image attachments.
 
-> **Note:** We only need a single image, even though we'll be doing some sort of double buffering. That's because the image is only every accessed by the GPU and the GPU can only ever write to a single image at a time. This differs from resources shared by the CPU and the GPU, but more on that later.
+> **Note:** We only need a single image, even if we do double buffering in other places. That's because the image is only every accessed by the GPU and the GPU can only ever write to a single depth image at a time. This differs from resources shared by the CPU and the GPU, but more on that later.
 
 Images in Vulkan are not accessed directly, but rather through [views](https://docs.vulkan.org/spec/latest/chapters/resources.html#VkImageView), a common concept in programming. This adds flexibility and allows different access patterns for the same image.
 
 ```cpp
-VkImageViewCreateInfo viewCI{
+VkImageViewCreateInfo depthViewCI{ 
 	.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-	.image = renderImage,
+	.image = depthImage,
 	.viewType = VK_IMAGE_VIEW_TYPE_2D,
-	.format = imageFormat,
-	.subresourceRange = {
-		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-		.levelCount = 1,
-		.layerCount = 1
-		}
-	};
-chk(vkCreateImageView(device, &viewCI, nullptr, &renderImageView));
+	.format = depthFormat,
+	.subresourceRange{ .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }
+};
+chk(vkCreateImageView(device, &depthViewCI, nullptr, &depthImageView));
 ```
 
-We want a view to the image we just created and we want to access it as a 2D view. The `subresourceRange` contains the part of the image we want to access via the view. So for images with multiple layers or (mip) levels you could do separate image views to any of these and access an image in different ways. The `aspectMask` refers to the aspect of the image that the view accesses. This can be depth, stencil or (in our case) the color part of the image.
+We need a view to the image we just created and we want to access it as a 2D view. The `subresourceRange` specifies the part of the image we want to access via this view. For images with multiple layers or (mip) levels you could do separate image views to any of these and access an image in different ways. The `aspectMask` refers to the aspect of the image that we want to access via the view. This can be color, stencil, or (in our case) the depth part of the image.
 
-With both the image and the image view created our intermediate render image is now ready to be used later on for rendering.
+With both the image and the image view created, our depth attachment is now ready to be used later on for rendering.
 
-# Todos
+## Mesh data
 
-- Command buffer : Work items have to be "compiled" into command buffers and submitted to queues. E.g. used to create command buffers on multiple threads
-- Validation: Use vkconfig from the SDK
-- Spelling and wording
-- Explanation of struct members before or after code?
+Note on putting vertices and indices into one buffer
+
+Say that it doesn't matter where data comes from (explicitly in code, glTF, etc.), the way of getting it to the GPU is always the same.
+
+```cpp
+VkBufferCreateInfo bufferCI{
+	.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+	.size = vBufSize + iBufSize,
+	.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+};
+```
