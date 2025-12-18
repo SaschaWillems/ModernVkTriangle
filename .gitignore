@@ -233,5 +233,3 @@ data/models/cerberus/*.*
 _deps/**
 
 imgui.ini
-
-external/**

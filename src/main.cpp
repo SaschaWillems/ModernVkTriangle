@@ -19,8 +19,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include "slang/slang.h"
-#include "slang/slang-com-ptr.h"
+#include "slang/include/slang.h"
+#include "slang/include/slang-com-ptr.h"
 #define DDSKTX_IMPLEMENT
 #include "dds-ktx/dds-ktx.h"
 #define TINYOBJLOADER_IMPLEMENTATION
