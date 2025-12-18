@@ -1,3 +1,6 @@
+# Copyright (c) 2025, Sascha Willems
+# SPDX-License-Identifier: MIT
+
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
 include(FetchContent)
@@ -8,8 +11,8 @@ include_directories(external)
 include_directories(external/vulkan)
 include_directories(external/glm)
 include_directories(external/volk)
-include_directories($ENV{VULKAN_SDK}/Include)
 include_directories(external/vma)
+include_directories(external/tinyobj)
 
 FetchContent_Declare(SFML
     GIT_REPOSITORY https://github.com/SFML/SFML.git
