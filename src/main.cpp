@@ -83,6 +83,10 @@ Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
 glm::vec3 camRotation{ 0.0f };
 glm::vec3 camPos{ 0.0f, 0.0f, -4.0f };
 sf::Vector2i lastMousePos{};
+struct Vertex {
+	glm::vec3 pos;
+	glm::vec2 uv;
+};
 
 int main()
 {
@@ -191,23 +195,20 @@ int main()
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
 	tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/monkey.obj");
-	const VkDeviceSize indexCount{shapes[0].mesh.indices.size()};
-	std::vector<float> vertices{};
+	const VkDeviceSize indexCount{shapes[0].mesh.indices.size()};	
+	std::vector<Vertex> vertices{};
 	std::vector<uint16_t> indices{};
-	// Find better solution, maybe do uv in separate loop and put into vertex vector based on uv index
-	for (auto &idx : shapes[0].mesh.indices) {
-		std::vector<float> values{ attrib.vertices[3 * idx.vertex_index], -attrib.vertices[3 * idx.vertex_index + 1], attrib.vertices[3 * idx.vertex_index + 2], attrib.texcoords[2 * idx.texcoord_index], attrib.texcoords[2 * idx.texcoord_index + 1]};
-		vertices.insert(vertices.end(), values.begin(), values.end());
-		indices.push_back(static_cast<uint32_t>(indices.size()));
+	// Load vertex and index data
+	for (size_t vStart = 0; vStart < attrib.vertices.size(); vStart += 3) {
+		Vertex vtx = { .pos = { attrib.vertices[vStart], -attrib.vertices[vStart + 1], attrib.vertices[vStart + 2] } };
+		vertices.push_back(vtx);
 	}
-	//for (size_t vStart = 0; vStart < attrib.vertices.size(); vStart += 3) {
-	//	std::vector<float> values{ attrib.vertices[vStart], attrib.vertices[vStart + 1], attrib.vertices[vStart + 2], 0.0, 0.0f };
-	//	vertices.insert(vertices.end(), values.begin(), values.end());
-	//}
 	for (auto& index : shapes[0].mesh.indices) {
-		//indices.push_back(index.vertex_index);
+		indices.push_back(index.vertex_index);
+		vertices[index.vertex_index].uv = { attrib.texcoords[2 * index.texcoord_index], attrib.texcoords[2 * index.texcoord_index + 1] };
 	}
-	VkDeviceSize vBufSize{ sizeof(float) * vertices.size() }; VkDeviceSize iBufSize{ sizeof(uint16_t) * indices.size() };
+	VkDeviceSize vBufSize{ sizeof(Vertex) * vertices.size() };
+	VkDeviceSize iBufSize{ sizeof(uint16_t) * indices.size() };
 	VkBufferCreateInfo bufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = vBufSize + iBufSize, .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT};
 	VmaAllocationCreateInfo bufferAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 	chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, &vBuffer, &vBufferAllocation, nullptr));
@@ -368,10 +369,10 @@ int main()
 		{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = shaderModule, .pName = "main"},
 		{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = shaderModule, .pName = "main" }
 	};
-	VkVertexInputBindingDescription vertexBinding{ .binding = 0, .stride = sizeof(float) * 5, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
+	VkVertexInputBindingDescription vertexBinding{ .binding = 0, .stride = sizeof(Vertex), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
 	std::vector<VkVertexInputAttributeDescription> vertexAttributes{
 		{ .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT },
-		{ .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = sizeof(float) * 3},
+		{ .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, uv) },
 	};
 	VkPipelineVertexInputStateCreateInfo vertexInputState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
