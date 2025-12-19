@@ -32,6 +32,7 @@ Vulkan is a deliberately explicit API, writing code for it can be very verbose. 
 * [Volk](https://github.com/zeux/volk) - Meta-loader that simplifies loading of Vulkan functions.
 * [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) - Simplifies dealing with memory allocations. Removes some of the verbosity around memory management.
 * [glm](https://github.com/g-truc/glm) - A mathematics library with support for things like matrices and vectors.
+* [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) - Single file loader for the obj 3D format.
 * [dds-ktx](https://github.com/septag/dds-ktx) - Portable single header library for loading images from KTX files. This will be used for loading textures. The official alternative would be [KTX-Software](https://github.com/KhronosGroup/KTX-Software), but it's a large dependency.
 
 > **Note:** None of these are required to work with Vulkan. They making working with Vulkan easier though and some like VMA and Volk are widely used.
@@ -380,14 +381,88 @@ With both the image and the image view created, our depth attachment is now read
 
 ## Mesh data
 
-Note on putting vertices and indices into one buffer
+From Vulkan's perspective there is no technical difference between drawing a single triangle or a complex mesh with thousands of triangles. Both result in some sort of buffer that the GPU will read data from. The GPU does not care where that data comes from. But from a learning experience it's much better to load an actual 3D object instead of displaying a triangle from hardcoded vertex data. That's our next step.
 
-Say that it doesn't matter where data comes from (explicitly in code, glTF, etc.), the way of getting it to the GPU is always the same.
+There are plenty of formats around for storing 3D models. [glTF](https://www.khronos.org/Gltf) for example offers a lot of features and is extensible in a way similar to Vulkan. But we want to keep things simple, so we'll be using the [Wavefront .obj format](https://en.wikipedia.org/wiki/Wavefront_.obj_file) instead. As far as 3D formats go, it won't get more plain than this. And it's supported by many tools like [Blender](https://www.blender.org/).
+
+First we declare a struct for the vertex data. Aside from vertex positions, we also need texture coordinates. These are colloquially abbreviated as [uv](https://en.wikipedia.org/wiki/UV_mapping):
 
 ```cpp
+struct Vertex {
+	glm::vec3 pos;
+	glm::vec2 uv;
+};
+```
+
+We're using the [tinyobjloader library](https://github.com/tinyobjloader/tinyobjloader) to the load .obj files. It does all the parsing and gives us structured access to the data contained in that file:
+
+```cpp
+// Mesh data
+tinyobj::attrib_t attrib;
+std::vector<tinyobj::shape_t> shapes;
+std::vector<tinyobj::material_t> materials;
+chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/monkey.obj"));
+```
+
+After a successful call to `LoadObj`, we can access the vertex data stored in the selected .obj file. `attrib` contains a linear array of the vertex data, `shapes` contains indices into that data. `materials` won't be used, we'll do our own shading. 
+
+> **Note:** The .obj format is a bit dated nd doesn't match modern 3D pipelines in all aspects. One such aspect is indexing of the vertex data. Due to how .obj files are structured we end up with one index per vertex, which limits the effectiveness of indexed rendering. In a real-world application you'd use better formats that work well with indexed rendering.
+
+We'll be using interleaved vertex attributes meaning that (in memory) for every vertex three floats for position data are followed by two floats for texture coordinates. For that to work we need to combine the position and texture coordinate data that tinyobj provides us with:
+
+```cpp
+const VkDeviceSize indexCount{shapes[0].mesh.indices.size()};	
+std::vector<Vertex> vertices{};
+std::vector<uint16_t> indices{};
+// Load vertex and index data
+for (auto& index : shapes[0].mesh.indices) {
+	Vertex vtx = {
+		.pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] },
+		.uv = { attrib.texcoords[2 * index.texcoord_index], 1.0 - attrib.texcoords[2 * index.texcoord_index + 1] }
+	};
+	vertices.push_back(vtx);
+	indices.push_back(indices.size());
+}
+```
+
+With the data stored in an interleaved way we can now upload the data to GPU. In theory we could just keep this in a buffer in CPU's RAM, but that would be a lot slower to access by the GPU than storing it in the GPU's VRAM For that we need to create a buffer that's going to hold the vertex data to be accessed by the GPU:
+
+```cpp
+VkDeviceSize vBufSize{ sizeof(Vertex) * vertices.size() };
+VkDeviceSize iBufSize{ sizeof(uint16_t) * indices.size() };
 VkBufferCreateInfo bufferCI{
 	.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 	.size = vBufSize + iBufSize,
 	.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
 };
+```
+
+Instead of having separate buffers for vertices and indices, we'll put both into the same buffer. That explains why the `size` of the buffer is calculated from the size of both vertices and index vectors. The buffer [`usage`](https://docs.vulkan.org/refpages/latest/refpages/source/VkBufferUsageFlagBits.html) bit mask combination of `VK_BUFFER_USAGE_VERTEX_BUFFER_BIT` and `VK_BUFFER_USAGE_INDEX_BUFFER_BIT` signals that intended use case to the driver.
+
+<!--
+This is also the first time we'll use VMA to allocate something in Vulkan. Memory allocation for buffers and images in Vulkan is verbose yet often very similar. With VMA we can do away with a lot of that. VMA also takes care of selecting the correct memory types and usage flags, something that would otherwise require a lot of code to get proper.
+-->
+
+Similar to creating images earlier on we use VMA to allocate the buffer for storing vertex and index data.
+
+```cpp
+VmaAllocationCreateInfo bufferAllocCI{
+	.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+	.usage = VMA_MEMORY_USAGE_AUTO
+};
+chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, &vBuffer, &vBufferAllocation, nullptr));
+```
+
+We again use `VMA_MEMORY_USAGE_AUTO` to have VMA select the correct usage flags for the buffer. The specific `flags` combination of `VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT` and `VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT` used here make sure we get a memory type that's located on the device (in VRAM) and accessible by the host. Such memory types initially were only available on systems with a unified memory architecture like mobiles or computers with an integrated GPU. But thanks to [(Re)BAR/SAM](https://en.wikipedia.org/wiki/PCI_configuration_space#Resizable_BAR) even dedicated GPUs can now map at least some of their VRAM into host space and make it accessible via the CPU.
+
+> **Note:** Without this we'd have to create a so-called "staging" buffer on the host, copy data to that buffer and then submit a buffer copy from staging to the GPU side buffer using a command buffer. That would require a lot more code.
+
+The `VMA_ALLOCATION_CREATE_MAPPED_BIT` flag lets us map the buffer, which in turn lets us directly copy data into VRAM:
+
+```cpp
+void* bufferPtr{ nullptr };
+vmaMapMemory(allocator, vBufferAllocation, &bufferPtr);
+memcpy(bufferPtr, vertices.data(), vBufSize);
+memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
+vmaUnmapMemory(allocator, vBufferAllocation);
 ```
