@@ -199,13 +199,10 @@ int main()
 	std::vector<Vertex> vertices{};
 	std::vector<uint16_t> indices{};
 	// Load vertex and index data
-	for (size_t vStart = 0; vStart < attrib.vertices.size(); vStart += 3) {
-		Vertex vtx = { .pos = { attrib.vertices[vStart], -attrib.vertices[vStart + 1], attrib.vertices[vStart + 2] } };
-		vertices.push_back(vtx);
-	}
 	for (auto& index : shapes[0].mesh.indices) {
-		indices.push_back(index.vertex_index);
-		vertices[index.vertex_index].uv = { attrib.texcoords[2 * index.texcoord_index], attrib.texcoords[2 * index.texcoord_index + 1] };
+		Vertex vtx = { .pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] }, .uv = { attrib.texcoords[2 * index.texcoord_index], 1.0 - attrib.texcoords[2 * index.texcoord_index + 1] } };
+		vertices.push_back(vtx);
+		indices.push_back(indices.size());
 	}
 	VkDeviceSize vBufSize{ sizeof(Vertex) * vertices.size() };
 	VkDeviceSize iBufSize{ sizeof(uint16_t) * indices.size() };
