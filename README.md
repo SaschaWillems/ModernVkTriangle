@@ -118,7 +118,7 @@ VkApplicationInfo appInfo{
 };
 ```
 
-Most import is `apiVersion`, which tells Vulkan that we want to use Vulkan 1.3. Using a higher api version gives us more features out-of-the box that otherwise would have to be used via extensions. [Vulkan 1.3](https://docs.vulkan.org/refpages/latest/refpages/source/VK_VERSION_1_3.html) is widely supported and adds a lot of features to the Vulkan core that make it easier to use. `pApplicationName` can be used to identify your application.
+Most important is `apiVersion`, which tells Vulkan that we want to use Vulkan 1.3. Using a higher api version gives us more features out-of-the box that otherwise would have to be used via extensions. [Vulkan 1.3](https://docs.vulkan.org/refpages/latest/refpages/source/VK_VERSION_1_3.html) is widely supported and adds a lot of features to the Vulkan core that make it easier to use. `pApplicationName` can be used to identify your application.
 
 > **Note:** A structure member you'll see a lot is `sType`. The driver needs to know what structure type it has to deal with, and with Vulkan being a C-API there is no other way than specifying it via structure member.
 
@@ -298,10 +298,10 @@ const VkFormat imageFormat{ VK_FORMAT_B8G8R8A8_SRGB };
 VkSwapchainCreateInfoKHR swapchainCI{
 	.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 	.surface = surface,
-	.minImageCount = 2,
+	.minImageCount = surfaceCaps.minImageCount,
 	.imageFormat = imageFormat,
 	.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
-	.imageExtent{ .width = window.getSize().x, .height = window.getSize().y, },
+	.imageExtent{ .width = surfaceCaps.currentExtent.width, .height = surfaceCaps.currentExtent.height },
 	.imageArrayLayers = 1,
 	.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 	.queueFamilyIndexCount = queueFamily,
@@ -312,17 +312,20 @@ VkSwapchainCreateInfoKHR swapchainCI{
 chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
 ```
 
+We're using the 4 component color format `VK_FORMAT_B8G8R8A8_SRGB` with a non-linear sRGB [color space](https://docs.vulkan.org/refpages/latest/refpages/source/VkColorSpaceKHR.html) `VK_COLORSPACE_SRGB_NONLINEAR_KHR`. This combination is guaranteed to be available everywhere. Different combinations would require checking for support. `minImageCount` will be the minimum no. of images w get from the swapchain. This value varies between GPUs, hence why we use the information we earlier requested from the surface. `presentMode` defines the way in which images are presented to the screen. [`VK_PRESENT_MODE_FIFO_KHR`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentModeKHR.html#) is a v-synced mode and the only mode guaranteed to be available everywhere.
+
 > **Note:** The swapchain setup shown here is a bare minimum. In a real-world application this part can be quite complicated, as you might have to adjust this based on user settings. One example would be HDR capable devices, where you'd need to use a different image format and color space.
 
-Something special about the swapchain is that it's images are not owned by the application, but rather by the swapchain. So instead of explicitly creating these on our own, we request them from the swapchain:
+Something special about the swapchain is that it's images are not owned by the application, but rather by the swapchain. So instead of explicitly creating these on our own, we request them from the swapchain. This will give as at least as many images are set by `minImageCount`:
 
-```
+```cpp
 uint32_t imageCount{ 0 };
 vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
 swapchainImages.resize(imageCount);
 vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
 swapchainImageViews.resize(imageCount);
 ```
+
 ## Depth attachment
 
 The swapchain images give us a way of storing color values. But we'll render three-dimensional objects and want make sure they're properly displayed, no matter from what perspective you look at them, or in which order their triangles are rasterized. That's done via [depth testing](https://docs.vulkan.org/spec/latest/chapters/fragops.html#fragops-depth) and to use that we need to have a depth attachment.
