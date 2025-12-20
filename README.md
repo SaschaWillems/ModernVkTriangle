@@ -22,7 +22,7 @@ The tutorial is focused on writing actual Vulkan code and getting things up and 
 
 ## Goal
 
-At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
+At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file (`main.src`) with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
 
 ## Libraries
 
@@ -35,11 +35,11 @@ Vulkan is a deliberately explicit API, writing code for it can be very verbose. 
 * [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) - Single file loader for the obj 3D format.
 * [dds-ktx](https://github.com/septag/dds-ktx) - Portable single header library for loading images from KTX files. This will be used for loading textures. The official alternative would be [KTX-Software](https://github.com/KhronosGroup/KTX-Software), but it's a large dependency.
 
-> **Note:** None of these are required to work with Vulkan. They making working with Vulkan easier though and some like VMA and Volk are widely used.
+> **Note:** None of these are required to work with Vulkan. They make working with Vulkan easier though and some like VMA and Volk are widely used.
 
 ## Programming language
 
-We'll use C++ 20, mostly it's designated initializers. They help with Vulkan's verbosity and improve code readability. Aside from that we won't be using any modern language features and also work with the C Vulkan headers instead of the [C++](https://github.com/KhronosGroup/Vulkan-Hpp) ones. Aside from personal preferences this is done to make this tutorial as approachable as possible, even for people that don't work with C++.
+We'll use C++ 20, mostly for it's designated initializers. They help with Vulkan's verbosity and improve code readability. Other than that we won't be using any modern language features and also work with the C Vulkan headers instead of the [C++](https://github.com/KhronosGroup/Vulkan-Hpp) ones. Aside from personal preferences this is done to make this tutorial as approachable as possible, even for people that don't work with C++.
 
 ## Shading language
 
