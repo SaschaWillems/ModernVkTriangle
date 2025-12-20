@@ -471,3 +471,28 @@ memcpy(bufferPtr, vertices.data(), vBufSize);
 memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 vmaUnmapMemory(allocator, vBufferAllocation);
 ```
+## Cleaning up
+
+Destroying Vulkan resources is just as explicit as creating them. In theory you could exit the application without doing that and have the operating system clean up for you instead. But properly cleaning up after you is common sense and so we do that. First we want to make sure that no resources are still in use by the GPU, so we call [vkDeviceWaitIdle](https://docs.vulkan.org/refpages/latest/refpages/source/vkDeviceWaitIdle.html). This waits until the GPU has completed all outstanding operations.
+
+```cpp
+chk(vkDeviceWaitIdle(device));
+```
+
+Once that call has successfully finished, we can start cleaning up all the Vulkan GPU objects we created for this tutorial:
+
+```cpp
+for (auto i = 0; i < maxFramesInFlight; i++) {
+	vkDestroyFence(device, fences[i], nullptr);
+	vkDestroySemaphore(device, presentSemaphores[i], nullptr);
+	...
+}
+vmaDestroyImage(allocator, depthImage, depthImageAllocation);
+...
+vkDestroyCommandPool(device, commandPool, nullptr);
+vmaDestroyAllocator(allocator);
+vkDestroyDevice(device, nullptr);
+vkDestroyInstance(instance, nullptr);
+```
+
+Ordering of commands only matters for the VMA allocator, device and instance. These should only be destroyed after all objects created from them. The instance should be deleted last, that way we'll be notified by the validation layers (when enabled) of every object we forgot to properly delete. One resource you don't have to explicitly destroy are the command buffers. Calling [vkDestroyCommandPool](https://docs.vulkan.org/refpages/latest/refpages/source/vkDestroyCommandPool.html) will implicitly free all command buffers allocated from that pool.
