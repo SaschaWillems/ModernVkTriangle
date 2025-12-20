@@ -12,13 +12,13 @@ This repository and the accompanying tutorial demonstrate how to write a "modern
 
 Vulkan has been released almost 10 years ago, and a lot has changed. Version 1.0 had to make many concessions to support a broad range of GPUs across desktop and mobile. Some of the initial concepts like render passes turned out to be not so optimal, and have been replaced by alternatives. Not only did the API mature, but so did the ecosystem giving us e.g. new options for writing shaders in languages different than GLSL.
 
-And so for this tutorial we will be using Vulkan 1.3 as a baseline. This gives us access to (almost all) features that make Vulkan easier to use while still supporting a wide range of GPUs.
+And so for this tutorial we will be using [Vulkan 1.3](https://docs.vulkan.org/refpages/latest/refpages/source/VK_VERSION_1_3.html) as a baseline. This gives us access to (almost all) features that make Vulkan easier to use while still supporting a wide range of GPUs.
 
 tl;dr: Doing Vulkan in 202X can be very different from doing Vulkan in 2016. That's what I hope to show with this.
 
 ## Target audience
 
-The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (possibly in a single afternoon). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). You should bring at least basic knowledge of C/C++ and realtime graphics concepts.
+The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (possibly in a single afternoon). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). Instead it'll often contain links to relevant information like the [Vulkan specification](https://docs.vulkan.org/). You should bring at least basic knowledge of C/C++ and realtime graphics concepts.
 
 ## Goal
 
@@ -433,6 +433,113 @@ memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 vmaUnmapMemory(allocator, vBufferAllocation);
 ```
 
+## Frames-in-flight
+
+Short intro on the whys
+
+```cpp
+constexpr uint32_t maxFramesInFlight{ 2 };
+std::array<UniformBuffers, maxFramesInFlight> uniformBuffers;
+```
+
+## Descriptors
+
+Short explanation of what they are, why the are needed and that for more complex setups descriptor indexing makes life easier.
+
+```cpp
+VkDescriptorPoolSize poolSizes[2]{
+	{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = maxFramesInFlight },
+	{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 }
+};
+VkDescriptorPoolCreateInfo descPoolCI{
+	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+	.maxSets = maxFramesInFlight + 1,
+	.poolSizeCount = 2,
+	.pPoolSizes = poolSizes
+};
+chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
+```
+
+desc set layout = defines interface between application and shader
+
+## Uniform buffers
+
+Used to pass data to the shaders.
+
+More flexible than passing fixed vertex data, but also more involved.
+
+Explain why they're called like that.
+
+"that is uniform (constant) for all vertices/fragments within a single draw call"
+
+" a variable is called "uniform" because its value remains constant (uniform) across all shader invocations for a single draw call. "
+
+@todo: maybe move to top
+
+```cpp
+VkDescriptorSetLayoutBinding descLayoutBinding{
+	.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT
+};
+VkDescriptorSetLayoutCreateInfo descLayoutCI{
+	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+	.bindingCount = 1,
+	.pBindings = &descLayoutBinding
+};
+chk(vkCreateDescriptorSetLayout(device, &descLayoutCI, nullptr, &descriptorSetLayout));
+`` 
+
+```cpp
+for (auto i = 0; i < maxFramesInFlight; i++) {
+	VkBufferCreateInfo uBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = sizeof(glm::mat4), .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
+	VmaAllocationCreateInfo uBufferAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
+	chk(vmaCreateBuffer(allocator, &uBufferCI, &uBufferAllocCI, &uniformBuffers[i].buffer, &uniformBuffers[i].allocation, nullptr));
+	vmaMapMemory(allocator, uniformBuffers[i].allocation, &uniformBuffers[i].mapped);
+	VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .descriptorPool = descriptorPool, .descriptorSetCount = 1, .pSetLayouts = &descriptorSetLayout };
+	chk(vkAllocateDescriptorSets(device, &allocInfo, &uniformBuffers[i].descriptorSet));
+	VkDescriptorBufferInfo descBuffInfo{ .buffer = uniformBuffers[i].buffer, .range = VK_WHOLE_SIZE };
+	VkWriteDescriptorSet writeDescSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = uniformBuffers[i].descriptorSet, .dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .pBufferInfo = &descBuffInfo, };
+	vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+}
+```
+
+## Sync objects
+
+No need to deal with in GL (driver cared for you), but Vulkan requires this. One of the hardest part to get right. Doing stuff wrong might work on one GPU but fail on the other. Note on using syncval in Vkconfig. One thing old apis did completely implicitly was GPU/CPU sync. This is explicit in Vulkan. We need to make sure the CPU doesn't start writing to resources still in use by the GPU (read-after-write hazard). As for semaphores, link to guide chapter. Explain two sync objects. Fences for CPU/GPU sync, Semaphores for GPU-only sync. Mention timeline sempahores, not used here due to WSI and sync being pretty eas anyway.
+
+```cpp
+VkSemaphoreCreateInfo semaphoreCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
+for (auto i = 0; i < maxFramesInFlight; i++) {
+	chk(vkCreateFence(device, &fenceCI, nullptr, &fences[i]));
+	chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &presentSemaphores[i]));
+}
+renderSemaphores.resize(swapchainImages.size());
+for (auto& semaphore : renderSemaphores) {
+	chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &semaphore));
+}
+```
+
+## Command buffers
+
+First used to submit copy for image, so need to explained before that. Work in VK isn't directly issued but rather compiled into command buffers. CBs are then submitted to a queue. That way you can create CBs in multiple threads or submit to different queues.
+
+```cpp
+VkCommandPoolCreateInfo commandPoolCI{
+	.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+	.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+	.queueFamilyIndex = queueFamily
+};
+chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
+VkCommandBufferAllocateInfo cbAllocCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = maxFramesInFlight };
+chk(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
+```
+
+## Loading a texture
+
+Pretty verbose in Vulkan. VK_EXT_host_image_copy simplifies this, but not widely available.
+
 ## Shaders
 
 As mentioned earlier we'll be using the Slang shading language. Vulkan can't directly load shaders written in such a language though (or GLSL or HLSL). It expects them in the SPIR-V intermediate format. For that we need to compile from Slang to SPIR-V first. There are two approaches to do that: Compile offline using Slang's command line compiler or compile at runtime using Slang's library.
@@ -524,6 +631,27 @@ float4 main(VSOutput input) {
 	return float4(samplerTexture.Sample(input.UV).rgb, 1.0);
 }
 ```
+
+## Graphics pipeline
+
+Only explain relevant parts.
+
+## Render loop
+
+### Sync
+
+Make sure we don't record a certain command buffer on the CPU until execution of it has finished on the GPU. That's what fences can be used for.
+
+### Update shader data
+
+### Draw
+
+Tell why we recreate CBs (it's cheap and simplifies things)
+
+### Event polling
+
+SFML specific, maybe separate chapter for the resize stuff
+
 ## Cleaning up
 
 Destroying Vulkan resources is just as explicit as creating them. In theory you could exit the application without doing that and have the operating system clean up for you instead. But properly cleaning up after you is common sense and so we do that. First we want to make sure that no resources are still in use by the GPU, so we call [vkDeviceWaitIdle](https://docs.vulkan.org/refpages/latest/refpages/source/vkDeviceWaitIdle.html). This waits until the GPU has completed all outstanding operations.
@@ -549,3 +677,5 @@ vkDestroyInstance(instance, nullptr);
 ```
 
 Ordering of commands only matters for the VMA allocator, device and instance. These should only be destroyed after all objects created from them. The instance should be deleted last, that way we'll be notified by the validation layers (when enabled) of every object we forgot to properly delete. One resource you don't have to explicitly destroy are the command buffers. Calling [vkDestroyCommandPool](https://docs.vulkan.org/refpages/latest/refpages/source/vkDestroyCommandPool.html) will implicitly free all command buffers allocated from that pool.
+
+## Closing words
