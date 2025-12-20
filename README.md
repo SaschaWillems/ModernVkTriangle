@@ -41,6 +41,10 @@ Vulkan is a deliberately explicit API, writing code for it can be very verbose. 
 
 We'll use C++ 20, mostly it's designated initializers. They help with Vulkan's verbosity and improve code readability. Aside from that we won't be using any modern language features and also work with the C Vulkan headers instead of the [C++](https://github.com/KhronosGroup/Vulkan-Hpp) ones. Aside from personal preferences this is done to make this tutorial as approachable as possible, even for people that don't work with C++.
 
+## Shading language
+
+Vulkan does consume shaders in an intermediate format called [SPIR-V](https://www.khronos.org/spirv/). This decouples the API from the actual shading language. Initially only GLSL was supported, but in 2025 there are more and better options. One of those is [Slang](https://github.com/shader-slang) and that's what we'll be using for this tutorial. The language itself is more modern than GLSL and offers some convenient features.
+
 ## Build system
 
 Our build system will be [CMake](https://cmake.org/). Similar to my approach to writing code, things will be kept as simple as possible with the added benefit of being able to follow this tutorial with a wide variety of C++ compilers and IDEs.
@@ -60,49 +64,6 @@ Vulkan was designed to minimize driver overhead. While that *can* result in bett
 Validation layers can be enabled in code, but the easier option is to download the [LunarG Vulkan SDK](https://vulkan.lunarg.com/sdk/home) and enable the layers via the [Vulkan Configurator GUI](https://vulkan.lunarg.com/doc/view/latest/windows/vkconfig.html). Once they're enabled, any improper use of the API will be logged to the command line window of our application.
 
 > **Note:** You should always have the validation layers enabled when developing with Vulkan. This makes sure you write spec-compliant code that properly works on other systems.
-
-## Shading language
-
-Vulkan does consume shaders in an intermediate format [SPIR-V](https://www.khronos.org/spirv/). This decouples the API from the actual shading language. Initially only GLSL was supported, but in 2025 there are more and better options. One of those is [Slang](https://github.com/shader-slang) and that's what we'll be using for this tutorial. The language itself is more modern than GLSL and offers some convenient features.
-
-## The shader
-
-Slang lets us put all shader stages into a single file. That removes the need to duplicate the shader interface or having to put that into shared includes. It also makes it easier to read (and edit) the shader.
-
-Our shader will be pretty simple. We have a vertex shader (`[shader("vertex")]`) and a fragment shader (`[shader("fragment")]`). The `VSInput` structure that is passed to the main function of the vertex shader passes the vertex attributes from the application into said shader.`ConstantBuffer<UBO>` maps the uniform data containing our model-view-projection matrix. The vertex shader transforms the vertex data with that and uses `VSOutput` to pass that to the fragment shader. That then uses `samplerTexture` to sample from the texture and writes to the color attachment.
-
-
-```slang
-struct VSInput {
-	float3 Pos;
-	float2 UV;
-};
-
-struct UBO {
-	float4x4 mvp;
-};
-[[vk::binding(0,0)]] ConstantBuffer<UBO> ubo;
-
-[[vk::binding(0,1)]] Sampler2D samplerTexture;
-
-struct VSOutput {
-	float4 Pos : SV_POSITION;
-	float2 UV;
-};
-
-[shader("vertex")]
-VSOutput main(VSInput input) {
-	VSOutput output;
-	output.UV = input.UV;
-	output.Pos = mul(ubo.mvp, float4(input.Pos.xyz, 1.0));
-	return output;
-}
-
-[shader("fragment")]
-float4 main(VSOutput input) {
-	return float4(samplerTexture.Sample(input.UV).rgb, 1.0);
-}
-```
 
 ## Instance setup
 
@@ -470,6 +431,98 @@ vmaMapMemory(allocator, vBufferAllocation, &bufferPtr);
 memcpy(bufferPtr, vertices.data(), vBufSize);
 memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 vmaUnmapMemory(allocator, vBufferAllocation);
+```
+
+## Shaders
+
+As mentioned earlier we'll be using the Slang shading language. Vulkan can't directly load shaders written in such a language though (or GLSL or HLSL). It expects them in the SPIR-V intermediate format. For that we need to compile from Slang to SPIR-V first. There are two approaches to do that: Compile offline using Slang's command line compiler or compile at runtime using Slang's library.
+
+We'll go for the latter as that makes updating shaders a bit easier. With offline compilation you'd have to recompile the shaders every time you change them or find a way to have the build system do that for you. With runtime compilation we'll always use the latest shader version when running our code.
+
+To compile Slang shaders we first create a global Slang session, which is the connection between our application and the Slang library:
+
+```cpp
+slang::createGlobalSession(slangGlobalSession.writeRef());
+```
+
+Next we create a session to define our compilations scope. We want to compile to SPIR-V, so we need to set the target `format` to `SLANG_SPIRV`. Similar to using a fixed Vulkan version as a baseline we want [SPIR-V 1.4](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_spirv_1_4.html) as our baseline for shaders. This has been added to the core in Vulkan 1.2, so it's guaranteed to be support in our case. We also change the `defaultMatrixLayoutMode` to a column major layout to match the matrix layout to what Vulkan uses:
+
+```cpp
+auto slangTargets{ std::to_array<slang::TargetDesc>({ {
+	.format{SLANG_SPIRV},
+	.profile{slangGlobalSession->findProfile("spirv_1_4")}
+} }) };
+auto slangOptions{ std::to_array<slang::CompilerOptionEntry>({ {
+	slang::CompilerOptionName::EmitSpirvDirectly,
+	{slang::CompilerOptionValueKind::Int, 1}
+} }) };
+slang::SessionDesc slangSessionDesc{
+	.targets{targets.data()},
+	.targetCount{SlangInt(targets.size())},
+	.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR,
+	.compilerOptionEntries{slangTargets.data()},
+	.compilerOptionEntryCount{uint32_t(slangTargets.size())}
+};
+Slang::ComPtr<slang::ISession> slangSession;
+slangGlobalSession->createSession(slangSessionDesc, slangSession.writeRef());
+```
+
+After a call to `createSession` we can use that session to get the SPIR-V. We first load the shader from a file using `loadModuleFromSource` and then use `getTargetCode` to compile all entry points in our shader to SPIR-V:
+
+```cpp
+Slang::ComPtr<slang::IModule> slangModule{ slangSession->loadModuleFromSource("triangle", "assets/shader.slang", nullptr, nullptr) };
+Slang::ComPtr<ISlangBlob> spirv;
+slangModule->getTargetCode(0, spirv.writeRef());
+```
+
+To then use our shader in our graphics pipeline (see below) we need to create a shader module. These are containers for compiled SPIR-V shaders. To create such a module, we pass the SPIR-V compiled by Slang to [`vkCreateShaderModule`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateShaderModule.html):
+
+```cpp
+VkShaderModuleCreateInfo shaderModuleCI{
+	.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+	.codeSize = spirv->getBufferSize(),
+	.pCode = (uint32_t*)spirv->getBufferPointer()
+};
+VkShaderModule shaderModule{};
+chk(vkCreateShaderModule(device, &shaderModuleCI, nullptr, &shaderModule));
+```
+
+## The shader
+
+The shader itself is pretty simple. We have entry points for a vertex (`[shader("vertex")]`) and a fragment shader (`[shader("fragment")]`). The `VSInput` structure that is passed to the main function of the vertex shader passes the vertex attributes from the application into said shader.`ConstantBuffer<UBO>` maps the uniform data containing our model-view-projection matrix. The vertex shader transforms the vertex data with that and uses `VSOutput` to pass that to the fragment shader. That then uses `samplerTexture` to sample from the texture and writes to the color attachment.
+
+> **Note:** Slang lets us put all shader stages into a single file. That removes the need to duplicate the shader interface or having to put that into shared includes. It also makes it easier to read (and edit) the shader.
+
+```slang
+struct VSInput {
+	float3 Pos;
+	float2 UV;
+};
+
+struct UBO {
+	float4x4 mvp;
+};
+[[vk::binding(0,0)]] ConstantBuffer<UBO> ubo;
+
+[[vk::binding(0,1)]] Sampler2D samplerTexture;
+
+struct VSOutput {
+	float4 Pos : SV_POSITION;
+	float2 UV;
+};
+
+[shader("vertex")]
+VSOutput main(VSInput input) {
+	VSOutput output;
+	output.UV = input.UV;
+	output.Pos = mul(ubo.mvp, float4(input.Pos.xyz, 1.0));
+	return output;
+}
+
+[shader("fragment")]
+float4 main(VSOutput input) {
+	return float4(samplerTexture.Sample(input.UV).rgb, 1.0);
+}
 ```
 ## Cleaning up
 
