@@ -363,8 +363,8 @@ int main()
 	VkPipelineLayoutCreateInfo pipelineLayoutCI{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = 2, .pSetLayouts = pipelineSetLayouts };
 	chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayout));
 	std::vector<VkPipelineShaderStageCreateInfo> stages{
-		{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = shaderModule, .pName = "main"},
-		{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = shaderModule, .pName = "main" }
+		{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = shaderModule, .pName = "main"},
+		{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = shaderModule, .pName = "main" }
 	};
 	VkVertexInputBindingDescription vertexBinding{ .binding = 0, .stride = sizeof(Vertex), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
 	std::vector<VkVertexInputAttributeDescription> vertexAttributes{
@@ -404,11 +404,9 @@ int main()
 		.layout = pipelineLayout
 	};
 	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline));
-	vkDestroyShaderModule(device, shaderModule, nullptr);
 	// Render loop
 	sf::Clock clock;
 	while (window.isOpen()) {
-		sf::Time elapsed = clock.restart();
 		// Sync
 		vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX);
 		vkResetFences(device, 1, &fences[frameIndex]);
@@ -504,8 +502,9 @@ int main()
 		};
 		chk(vkQueuePresentKHR(queue, &presentInfo));
 		frameIndex = (frameIndex + 1) % maxFramesInFlight;
-		while (const std::optional event = window.pollEvent())
-		{
+		// Event polling
+		sf::Time elapsed = clock.restart();
+		while (const std::optional event = window.pollEvent()) {
 			if (event->is<sf::Event::Closed>()) {
 				window.close();
 			}
@@ -569,6 +568,7 @@ int main()
 	vkDestroySwapchainKHR(device, swapchain, nullptr);
 	vkDestroySurfaceKHR(instance, surface, nullptr);
 	vkDestroyCommandPool(device, commandPool, nullptr);
+	vkDestroyShaderModule(device, shaderModule, nullptr);
 	vmaDestroyAllocator(allocator);
 	vkDestroyDevice(device, nullptr);
 	vkDestroyInstance(instance, nullptr);
