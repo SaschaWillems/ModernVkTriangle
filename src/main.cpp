@@ -65,12 +65,10 @@ VkBuffer vBuffer{ VK_NULL_HANDLE };
 struct UniformBuffers {
 	VmaAllocation allocation{ VK_NULL_HANDLE };
 	VkBuffer buffer{ VK_NULL_HANDLE };
-	VkDescriptorSet descriptorSet{ VK_NULL_HANDLE };
+	VkDeviceAddress deviceAddress{};
 	void* mapped{ nullptr };
 };
 std::array<UniformBuffers, maxFramesInFlight> uniformBuffers;
-VkDescriptorSetLayout descriptorSetLayout{ VK_NULL_HANDLE };
-VkDescriptorPool descriptorPool{ VK_NULL_HANDLE };
 struct Texture {
 	VmaAllocation allocation{ VK_NULL_HANDLE };
 	VkImage image{ VK_NULL_HANDLE };	
@@ -78,6 +76,7 @@ struct Texture {
 	VkSampler sampler{ VK_NULL_HANDLE };
 	VkDescriptorSet descriptorSet{ VK_NULL_HANDLE };
 } texture;
+VkDescriptorPool descriptorPool{ VK_NULL_HANDLE };
 VkDescriptorSetLayout descriptorSetLayoutTex{ VK_NULL_HANDLE };
 Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
 glm::vec3 camRotation{ 0.0f };
@@ -123,7 +122,8 @@ int main()
 	// Logical device
 	const float qfpriorities{ 1.0f };
 	VkDeviceQueueCreateInfo queueCI{ .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = queueFamily, .queueCount = 1, .pQueuePriorities = &qfpriorities };
-	const VkPhysicalDeviceVulkan13Features enabledVk13Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .dynamicRendering = true };
+	VkPhysicalDeviceVulkan12Features enabledVk12Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .bufferDeviceAddress = true };
+	VkPhysicalDeviceVulkan13Features enabledVk13Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .pNext = &enabledVk12Features, .dynamicRendering = true };
 	const std::vector<const char*> deviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	const VkPhysicalDeviceFeatures enabledVk10Features{ .samplerAnisotropy = VK_TRUE };
 	VkDeviceCreateInfo deviceCI{
@@ -213,24 +213,14 @@ int main()
 	memcpy(bufferPtr, vertices.data(), vBufSize);
 	memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 	vmaUnmapMemory(allocator, vBufferAllocation);
-	// Descriptor pool
-	VkDescriptorPoolSize poolSizes[2]{ { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = maxFramesInFlight }, {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 } };
-	VkDescriptorPoolCreateInfo descPoolCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .maxSets = maxFramesInFlight + 1, .poolSizeCount = 2, .pPoolSizes = poolSizes  };
-	chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
 	// Uniform buffers
-	VkDescriptorSetLayoutBinding descLayoutBinding{.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT};
-	VkDescriptorSetLayoutCreateInfo descLayoutCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 1,  .pBindings = &descLayoutBinding };
-	chk(vkCreateDescriptorSetLayout(device, &descLayoutCI, nullptr, &descriptorSetLayout));
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		VkBufferCreateInfo uBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = sizeof(glm::mat4), .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
 		VmaAllocationCreateInfo uBufferAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 		chk(vmaCreateBuffer(allocator, &uBufferCI, &uBufferAllocCI, &uniformBuffers[i].buffer, &uniformBuffers[i].allocation, nullptr));
 		vmaMapMemory(allocator, uniformBuffers[i].allocation, &uniformBuffers[i].mapped);
-		VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .descriptorPool = descriptorPool, .descriptorSetCount = 1, .pSetLayouts = &descriptorSetLayout };
-		chk(vkAllocateDescriptorSets(device, &allocInfo, &uniformBuffers[i].descriptorSet));
-		VkDescriptorBufferInfo descBuffInfo{ .buffer = uniformBuffers[i].buffer, .range = VK_WHOLE_SIZE };
-		VkWriteDescriptorSet writeDescSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = uniformBuffers[i].descriptorSet, .dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .pBufferInfo = &descBuffInfo, };
-		vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+		VkBufferDeviceAddressInfo uBufferBdaInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = uniformBuffers[i].buffer};
+		uniformBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &uBufferBdaInfo);
 	}
 	// Sync objects
 	VkSemaphoreCreateInfo semaphoreCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -248,6 +238,10 @@ int main()
 	chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
 	VkCommandBufferAllocateInfo cbAllocCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = maxFramesInFlight };
 	chk(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
+	// Descriptor pool
+	VkDescriptorPoolSize poolSizes[1]{ {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 } };
+	VkDescriptorPoolCreateInfo descPoolCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .maxSets = 1, .poolSizeCount = 1, .pPoolSizes = poolSizes };
+	chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
 	// Texture image
 //	std::ifstream ktxFile("assets/texture0.ktx", std::ios::binary | std::ios::ate);
 	std::ifstream ktxFile("assets/vulkan.ktx", std::ios::binary | std::ios::ate);
@@ -359,8 +353,8 @@ int main()
 	VkShaderModule shaderModule{};
 	vkCreateShaderModule(device, &shaderModuleCI, nullptr, &shaderModule);
 	// Pipeline
-	VkDescriptorSetLayout pipelineSetLayouts[2]{ descriptorSetLayout, descriptorSetLayoutTex };
-	VkPipelineLayoutCreateInfo pipelineLayoutCI{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = 2, .pSetLayouts = pipelineSetLayouts };
+	VkPushConstantRange pushConstantRange{ .stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .size = sizeof(VkDeviceAddress) };
+	VkPipelineLayoutCreateInfo pipelineLayoutCI{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = 1, .pSetLayouts = &descriptorSetLayoutTex, .pushConstantRangeCount = 1, .pPushConstantRanges = &pushConstantRange };
 	chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayout));
 	std::vector<VkPipelineShaderStageCreateInfo> stages{
 		{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = shaderModule, .pName = "main"},
@@ -459,14 +453,14 @@ int main()
 		vkCmdSetViewport(cb, 0, 1, &vp);
 		VkRect2D scissor{ .extent{ .width = window.getSize().x, .height = window.getSize().y } };
 		vkCmdSetScissor(cb, 0, 1, &scissor);
-		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &uniformBuffers[frameIndex].descriptorSet, 0, nullptr);
-		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 1, 1, &texture.descriptorSet, 0, nullptr);
+		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &texture.descriptorSet, 0, nullptr);
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 		VkDeviceSize vOffset{ 0 };
 		vkCmdBindVertexBuffers(cb, 0, 1, &vBuffer, &vOffset);
 		vkCmdBindIndexBuffer(cb, vBuffer, vBufSize, VK_INDEX_TYPE_UINT16);
 		// vkCmdDrawIndexed(cb, indexCount, 1, 0, 0, 0); @todo
-		vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
+		vkCmdPushConstants(cb, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &uniformBuffers[frameIndex].deviceAddress);
+		vkCmdDrawIndexed(cb, indexCount, 1, 0, 0, 0);
 		vkCmdEndRendering(cb);
 		VkImageMemoryBarrier barrier1{
 			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
