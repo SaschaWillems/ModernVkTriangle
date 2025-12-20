@@ -154,10 +154,9 @@ int main()
 		.minImageCount = surfaceCaps.minImageCount,
 		.imageFormat = imageFormat,
 		.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
-		.imageExtent{ .width = surfaceCaps.currentExtent.width, .height = surfaceCaps.currentExtent.height, },
+		.imageExtent{ .width = surfaceCaps.currentExtent.width, .height = surfaceCaps.currentExtent.height },
 		.imageArrayLayers = 1,
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.queueFamilyIndexCount = queueFamily,
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR
@@ -194,14 +193,14 @@ int main()
 	tinyobj::attrib_t attrib;
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
-	tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/monkey.obj");
+	chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/monkey.obj"));
 	const VkDeviceSize indexCount{shapes[0].mesh.indices.size()};	
 	std::vector<Vertex> vertices{};
 	std::vector<uint16_t> indices{};
 	// Load vertex and index data
 	for (auto& index : shapes[0].mesh.indices) {
-		Vertex vtx = { .pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] }, .uv = { attrib.texcoords[2 * index.texcoord_index], 1.0 - attrib.texcoords[2 * index.texcoord_index + 1] } };
-		vertices.push_back(vtx);
+		Vertex v{ .pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] }, .uv = { attrib.texcoords[index.texcoord_index * 2], 1.0 - attrib.texcoords[index.texcoord_index * 2 + 1] } };
+		vertices.push_back(v);
 		indices.push_back(indices.size());
 	}
 	VkDeviceSize vBufSize{ sizeof(Vertex) * vertices.size() };
