@@ -234,9 +234,9 @@ int main()
 	}
 	// Sync objects
 	VkSemaphoreCreateInfo semaphoreCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+	VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
 	for (auto i = 0; i < maxFramesInFlight; i++) {
-		VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
-		vkCreateFence(device, &fenceCI, nullptr, &fences[i]);
+		chk(vkCreateFence(device, &fenceCI, nullptr, &fences[i]));
 		chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &presentSemaphores[i]));
 	}
 	renderSemaphores.resize(swapchainImages.size());
@@ -549,7 +549,7 @@ int main()
 		}
 	}
 	// Tear down
-	vkDeviceWaitIdle(device);
+	chk(vkDeviceWaitIdle(device));
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		vkDestroyFence(device, fences[i], nullptr);
 		vkDestroySemaphore(device, presentSemaphores[i], nullptr);
@@ -564,11 +564,11 @@ int main()
 	}
 	vmaDestroyBuffer(allocator, vBuffer, vBufferAllocation);
 	vmaDestroyImage(allocator, texture.image, texture.allocation);
-	vkDestroyCommandPool(device, commandPool, nullptr);
 	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 	vkDestroyPipeline(device, pipeline, nullptr);
 	vkDestroySwapchainKHR(device, swapchain, nullptr);
 	vkDestroySurfaceKHR(instance, surface, nullptr);
+	vkDestroyCommandPool(device, commandPool, nullptr);
 	vmaDestroyAllocator(allocator);
 	vkDestroyDevice(device, nullptr);
 	vkDestroyInstance(instance, nullptr);
