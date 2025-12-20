@@ -160,22 +160,36 @@ chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
 
 After the second call to [`vkEnumeratePhysicalDevices`](https://docs.vulkan.org/refpages/latest/refpages/source/vkEnumeratePhysicalDevices.html) we have a list of Vulkan capable devices in `devices`. On most systems there will only be one device, so for simplicity we use the first physical device. In a real-world application you could let the user select different devices, e.g. via command line arguments.
 
-One thing that's also part of device creation is requesting features and extensions we want to use. But our instance was created with Vulkan 1.3 as a baseline, which gives us almost all the features we want to use. So we only have to request the [`VK_KHR_swapchain`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_swapchain.html) extension in order to be able to present something to the screen.
-
-Similar to instance creation, using Vulkan 1.3 as a baseline already gives us most of the required functionality. But we'll use dynamic rendering, so we need to set that via the [`dynamicRendering`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceVulkan13Features.html#_members) member of the Vulkan 1.3 feature information. We also want to use anisotropic filtering textures images, so we set [`samplerAnisotropy`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) in the Vulkan 10 feature information:
+One thing that's also part of device creation is requesting features and extensions we want to use. Our instance was created with Vulkan 1.3 as a baseline, which gives us almost all the features we want to use. So we only have to request the [`VK_KHR_swapchain`](https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_swapchain.html) extension in order to be able to present something to the screen:
 
 ```cpp
 const std::vector<const char*> deviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+```
+
+> **Note:** The Vulkan headers have defines for all extensions (like `VK_KHR_SWAPCHAIN_EXTENSION_NAME`) that you can use instead of writing their name as string. This helps to avoid typos in extension names.
+
+Using Vulkan 1.3 as a baseline already gives us most of the required functionality. But we'll use a few features that need to be explicitly enabled:
+
+```cpp
+VkPhysicalDeviceVulkan12Features enabledVk12Features{
+	.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+	.bufferDeviceAddress = true
+};
 const VkPhysicalDeviceVulkan13Features enabledVk13Features{
 	.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+	.pNext = &enabledVk12Features,
 	.dynamicRendering = true
 };
 const VkPhysicalDeviceFeatures enabledVk10Features{
 	.samplerAnisotropy = VK_TRUE
 };
 ```
+[`Dynamic rendering`](https://docs.vulkan.org/guide/latest/buffer_device_address.html) greatly simplifies render pass setup, one of the most criticized Vulkan areas. [`Buffer device address`](https://docs.vulkan.org/guide/latest/buffer_device_address.html) lets us access buffers from shaders via pointer, saving is from having to go through descriptors. The combination of these features makes Vulkan much easier to use.
 
-> **Note:** The Vulkan headers have defines for all extensions (like `VK_KHR_SWAPCHAIN_EXTENSION_NAME`) that you can use instead of writing their name as string. This helps to avoid typos in extension names.
+We also enable [anisotropic filtering](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) for textures images for better filtering.
+
+> **Note:** Another Vulkan struct member you're going to see often is `pNext`. This can be used to create a linked list of structures that are passed into a function call. The driver then uses the `sType` member of each structure in that list to identify said structure's type.
+
 
 With everything in place, we can create a logical device passing all required data: features (for the different core versions), extensions and the queue families we want to use:
 
@@ -191,8 +205,6 @@ VkDeviceCreateInfo deviceCI{
 };
 chk(vkCreateDevice(devices[deviceIndex], &deviceCI, nullptr, &device));
 ```
-
-> **Note:** Another Vulkan struct member you're going to see often is `pNext`. This can be used to create a linked list of structures that are passed into a function call. It's often used to pass extension structures. The driver then uses the `sType` member of each structure in that list to identify said structure's type.
 
 We also need a queue to submit our graphics commands to, which we can now request from the device we just created:
 
@@ -343,7 +355,7 @@ We need a view to the image we just created and we want to access it as a 2D vie
 
 With both the image and the image view created, our depth attachment is now ready to be used later on for rendering.
 
-## Mesh data
+## Loading meshes
 
 From Vulkan's perspective there is no technical difference between drawing a single triangle or a complex mesh with thousands of triangles. Both result in some sort of buffer that the GPU will read data from. The GPU does not care where that data comes from. But from a learning experience it's much better to load an actual 3D object instead of displaying a triangle from hardcoded vertex data. That's our next step.
 
