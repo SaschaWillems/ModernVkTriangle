@@ -213,8 +213,6 @@ int main()
 	memcpy(bufferPtr, vertices.data(), vBufSize);
 	memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 	vmaUnmapMemory(allocator, vBufferAllocation);
-	VkCommandPoolCreateInfo commandPoolCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = queueFamily };
-	chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
 	// Descriptor pool
 	VkDescriptorPoolSize poolSizes[2]{ { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = maxFramesInFlight }, {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 } };
 	VkDescriptorPoolCreateInfo descPoolCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .maxSets = maxFramesInFlight + 1, .poolSizeCount = 2, .pPoolSizes = poolSizes  };
@@ -237,8 +235,6 @@ int main()
 	// Sync objects
 	VkSemaphoreCreateInfo semaphoreCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	for (auto i = 0; i < maxFramesInFlight; i++) {
-		VkCommandBufferAllocateInfo cbAllocCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = 1};
-		chk(vkAllocateCommandBuffers(device, &cbAllocCI, &commandBuffers[i]));
 		VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
 		vkCreateFence(device, &fenceCI, nullptr, &fences[i]);
 		chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &presentSemaphores[i]));
@@ -247,6 +243,11 @@ int main()
 	for (auto& semaphore : renderSemaphores) {
 		chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &semaphore));
 	}
+	// Command pool
+	VkCommandPoolCreateInfo commandPoolCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = queueFamily };
+	chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
+	VkCommandBufferAllocateInfo cbAllocCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = maxFramesInFlight };
+	chk(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
 	// Texture image
 //	std::ifstream ktxFile("assets/texture0.ktx", std::ios::binary | std::ios::ate);
 	std::ifstream ktxFile("assets/vulkan.ktx", std::ios::binary | std::ios::ate);
