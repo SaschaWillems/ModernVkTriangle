@@ -419,14 +419,16 @@ std::vector<Vertex> vertices{};
 std::vector<uint16_t> indices{};
 // Load vertex and index data
 for (auto& index : shapes[0].mesh.indices) {
-	Vertex vtx = {
+	Vertex v{
 		.pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] },
-		.uv = { attrib.texcoords[2 * index.texcoord_index], 1.0 - attrib.texcoords[2 * index.texcoord_index + 1] }
+		.uv = { attrib.texcoords[index.texcoord_index * 2], 1.0 - attrib.texcoords[index.texcoord_index * 2+ 1] }
 	};
-	vertices.push_back(vtx);
+	vertices.push_back(v);
 	indices.push_back(indices.size());
 }
 ```
+
+> **Note:** The value of the position's y-axis and the texture coordinate's v-axis are flipped to accommodate for Vulkan's coordinate system. Otherwise the model and the texture image would appear upside down.
 
 With the data stored in an interleaved way we can now upload the data to GPU. In theory we could just keep this in a buffer in CPU's RAM, but that would be a lot slower to access by the GPU than storing it in the GPU's VRAM For that we need to create a buffer that's going to hold the vertex data to be accessed by the GPU:
 
