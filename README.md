@@ -855,19 +855,97 @@ Reference dynamic rendering, explicit barriers, bind stuff, issue draw commands
 
 ### Event polling
 
-SFML specific, maybe separate chapter for the resize stuff
+After all the visual things we now have to work through the event queue (of the operating system). This is done in an additional loop (inside the render loop) where we call `pollEvent` until all events have been popped from the queue. We only handle event types we're interested in:
+
+```cpp
+while (const std::optional event = window.pollEvent()) {
+
+	// Exit loop if window is about to close
+	if (event->is<sf::Event::Closed>()) {
+		window.close();
+	}
+
+	// Rotate with mouse drag
+	if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>()) {
+		if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
+			auto delta = lastMousePos - mouseMoved->position;
+			camRotation.x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
+			camRotation.y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
+		}
+		lastMousePos = mouseMoved->position;
+	}
+
+	// Zooming with the mouse wheel
+	if (const auto* mouseWheelScrolled = event->getIf<sf::Event::MouseWheelScrolled>()) {
+		camPos.z += (float)mouseWheelScrolled->delta * 0.025f * (float)elapsed.asMilliseconds();
+	}
+
+	// Window resize
+	if (const auto* resized = event->getIf<sf::Event::Resized>()) {
+		...
+	}
+}
+```
+
+We want to have some interactivity in our application, so we calculate rotation based on mouse movement when the left button is down in the `MouseMoved` event and do similar with the mousewheel in `MouseWheelScrolled` to allow zooming in and out.
+
+The `Closed` event is called when our application is to be closed, no matter how. Calling `close` on our SFML window will exit the outer render loop (which checks if the window is open) and jumps to the [clean up](#cleaning-up) part of the code.
+
+Although it's optional, and something games often don't implement, we also handle resizing triggered by the `Resized` event. This way we can resize the window at it's border, and minimize or maximize it:
+
+```cpp
+if (const auto* resized = event->getIf<sf::Event::Resized>()) {
+	vkDeviceWaitIdle(device);
+	swapchainCI.oldSwapchain = swapchain;
+	swapchainCI.imageExtent = { .width = static_cast<uint32_t>(resized->size.x), .height = static_cast<uint32_t>(resized->size.y) };
+	chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
+	for (auto i = 0; i < imageCount; i++) {
+		vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+	}
+	vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
+	swapchainImages.resize(imageCount);
+	vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
+	swapchainImageViews.resize(imageCount);
+	for (auto i = 0; i < imageCount; i++) {
+		VkImageViewCreateInfo viewCI{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.image = swapchainImages[i],
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format = imageFormat,
+			.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}
+		};
+		chk(vkCreateImageView(device, &viewCI, nullptr, &swapchainImageViews[i]));
+	}
+	vkDestroySwapchainKHR(device, swapchainCI.oldSwapchain, nullptr);
+	vmaDestroyImage(allocator, depthImage, depthImageAllocation);
+	vkDestroyImageView(device, depthImageView, nullptr);
+	depthImageCI.extent = { .width = static_cast<uint32_t>(window.getSize().x), .height = static_cast<uint32_t>(window.getSize().y), .depth = 1 };
+	VmaAllocationCreateInfo allocCI{
+		.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+		.usage = VMA_MEMORY_USAGE_AUTO 
+	;
+	chk(vmaCreateImage(allocator, &depthImageCI, &allocCI, &depthImage, &depthImageAllocation, nullptr));
+	VkImageViewCreateInfo viewCI{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = depthImage,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = depthFormat,
+		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }
+	};
+	chk(vkCreateImageView(device, &viewCI, nullptr, &depthImageView));
+}
+```	
+
+This looks intimidating at first, but it's mostly code we already used earlier on to create the swapchain and the depth image. Before we can recreate these, we call [vkDeviceWaitIdle](https://docs.vulkan.org/refpages/latest/refpages/source/vkDeviceWaitIdle.html) to wait until the GPU has completed all outstanding operations. This makes sure that none of those objects are still in use by the GPU.
+
+An important difference is setting the `oldSwapchain` member of the swapchain create info. This is necessary during recreation to allow the application to continue presenting any already acquired image. Remember we don't have control over those, as they're owned by the swapchain (and the operating system). Other than that it's a simple matter of destroying existing objects (`vkDestroy*`) and creating them a new just like we did earlier on albeit with the new size of the window.
 
 ## Cleaning up
 
-Destroying Vulkan resources is just as explicit as creating them. In theory you could exit the application without doing that and have the operating system clean up for you instead. But properly cleaning up after you is common sense and so we do that. First we want to make sure that no resources are still in use by the GPU, so we call [vkDeviceWaitIdle](https://docs.vulkan.org/refpages/latest/refpages/source/vkDeviceWaitIdle.html). This waits until the GPU has completed all outstanding operations.
+Destroying Vulkan resources is just as explicit as creating them. In theory you could exit the application without doing that and have the operating system clean up for you instead. But properly cleaning up after you is common sense and so we do that. We once again call vkDeviceWaitIdle to make sure none of the GPU resources we want to destroy are still in use. Once that call has successfully finished, we can start cleaning up all the Vulkan GPU objects we created in our application:
 
 ```cpp
 chk(vkDeviceWaitIdle(device));
-```
-
-Once that call has successfully finished, we can start cleaning up all the Vulkan GPU objects we created for this tutorial:
-
-```cpp
 for (auto i = 0; i < maxFramesInFlight; i++) {
 	vkDestroyFence(device, fences[i], nullptr);
 	vkDestroySemaphore(device, presentSemaphores[i], nullptr);

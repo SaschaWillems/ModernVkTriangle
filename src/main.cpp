@@ -518,13 +518,12 @@ int main()
 				swapchainCI.oldSwapchain = swapchain;
 				swapchainCI.imageExtent = { .width = static_cast<uint32_t>(resized->size.x), .height = static_cast<uint32_t>(resized->size.y) };
 				chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
-				auto oldImageCount = imageCount;
+				for (auto i = 0; i < imageCount; i++) {
+					vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+				}
 				vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
 				swapchainImages.resize(imageCount);
 				vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
-				for (auto i = 0; i < swapchainImageViews.size(); i++) {
-					vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-				}
 				swapchainImageViews.resize(imageCount);
 				for (auto i = 0; i < imageCount; i++) {
 					VkImageViewCreateInfo viewCI{ .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = swapchainImages[i], .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = imageFormat, .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}};
