@@ -216,7 +216,7 @@ vkGetDeviceQueue(device, queueFamily, 0, &queue);
 
 Vulkan is an explicit API, which also applies to memory management. As noted in the list of libraries we will be using the [Vulkan Memory Allocator (VMA)](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) to simplify this as far as possible.
 
-VMA provides an allocator used to allocate memory from. This needs to be set up for your project once. For that we pass in pointers to some common Vulkan functions, our Vulkan instance and device:
+VMA provides an allocator used to allocate memory from. This needs to be set up for your project once. For that we pass in pointers to some common Vulkan functions, our Vulkan instance and device, we also enable support for buffer device address (`flags`):
 
 ```cpp
 VmaVulkanFunctions vkFunctions{
@@ -225,6 +225,7 @@ VmaVulkanFunctions vkFunctions{
 	.vkCreateImage = vkCreateImage
 };
 VmaAllocatorCreateInfo allocatorCI{
+	.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT, 
 	.physicalDevice = devices[deviceIndex],
 	.device = device,
 	.pVulkanFunctions = &vkFunctions,
@@ -417,10 +418,6 @@ VkBufferCreateInfo bufferCI{
 
 Instead of having separate buffers for vertices and indices, we'll put both into the same buffer. That explains why the `size` of the buffer is calculated from the size of both vertices and index vectors. The buffer [`usage`](https://docs.vulkan.org/refpages/latest/refpages/source/VkBufferUsageFlagBits.html) bit mask combination of `VK_BUFFER_USAGE_VERTEX_BUFFER_BIT` and `VK_BUFFER_USAGE_INDEX_BUFFER_BIT` signals that intended use case to the driver.
 
-<!--
-This is also the first time we'll use VMA to allocate something in Vulkan. Memory allocation for buffers and images in Vulkan is verbose yet often very similar. With VMA we can do away with a lot of that. VMA also takes care of selecting the correct memory types and usage flags, something that would otherwise require a lot of code to get proper.
--->
-
 Similar to creating images earlier on we use VMA to allocate the buffer for storing vertex and index data.
 
 ```cpp
@@ -608,7 +605,7 @@ chk(vkCreateShaderModule(device, &shaderModuleCI, nullptr, &shaderModule));
 
 ## The shader
 
-The shader itself is pretty simple. We have entry points for a vertex (`[shader("vertex")]`) and a fragment shader (`[shader("fragment")]`). The `VSInput` structure that is passed to the main function of the vertex shader passes the vertex attributes from the application into said shader.`ConstantBuffer<UBO>` maps the uniform data containing our model-view-projection matrix. The vertex shader transforms the vertex data with that and uses `VSOutput` to pass that to the fragment shader. That then uses `samplerTexture` to sample from the texture and writes to the color attachment.
+The shader itself is pretty simple. We have entry points for a vertex (`[shader("vertex")]`) and a fragment shader (`[shader("fragment")]`). The `VSInput` structure that is passed to the main function of the vertex shader passes the vertex attributes from the application into said shader. We access the uniform data containing our model-view-projection matrix via a pointer passed as a push constant to the fragment's shader main function. The vertex shader transforms the vertex data with that and uses `VSOutput` to pass that to the fragment shader. That then uses `samplerTexture` to sample from the texture and writes to the color attachment.
 
 > **Note:** Slang lets us put all shader stages into a single file. That removes the need to duplicate the shader interface or having to put that into shared includes. It also makes it easier to read (and edit) the shader.
 
@@ -618,12 +615,11 @@ struct VSInput {
 	float2 UV;
 };
 
+[[vk::binding(0,1)]] Sampler2D samplerTexture;
+
 struct UBO {
 	float4x4 mvp;
 };
-[[vk::binding(0,0)]] ConstantBuffer<UBO> ubo;
-
-[[vk::binding(0,1)]] Sampler2D samplerTexture;
 
 struct VSOutput {
 	float4 Pos : SV_POSITION;
@@ -631,10 +627,10 @@ struct VSOutput {
 };
 
 [shader("vertex")]
-VSOutput main(VSInput input) {
+VSOutput main(VSInput input, uniform UBO *ubo) {
 	VSOutput output;
 	output.UV = input.UV;
-	output.Pos = mul(ubo.mvp, float4(input.Pos.xyz, 1.0));
+	output.Pos = mul(ubo->mvp, float4(input.Pos.xyz, 1.0));
 	return output;
 }
 

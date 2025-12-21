@@ -139,7 +139,7 @@ int main()
 	vkGetDeviceQueue(device, queueFamily, 0, &queue);
 	// VMA
 	VmaVulkanFunctions vkFunctions{ .vkGetInstanceProcAddr = vkGetInstanceProcAddr, .vkGetDeviceProcAddr = vkGetDeviceProcAddr, .vkCreateImage = vkCreateImage };
-	VmaAllocatorCreateInfo allocatorCI{ .physicalDevice = devices[deviceIndex], .device = device, .pVulkanFunctions = &vkFunctions, .instance = instance };
+	VmaAllocatorCreateInfo allocatorCI{ .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT, .physicalDevice = devices[deviceIndex], .device = device, .pVulkanFunctions = &vkFunctions, .instance = instance };
 	chk(vmaCreateAllocator(&allocatorCI, &allocator));
 	// Window and surface
 	auto window = sf::RenderWindow(sf::VideoMode({ 1280, 720u }), "How to Vulkan");
