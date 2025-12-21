@@ -1,4 +1,3 @@
-
 <!--
 Copyright (c) 2025, Sascha Willems
 SPDX-License-Identifier: MIT
@@ -442,7 +441,7 @@ memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 vmaUnmapMemory(allocator, vBufferAllocation);
 ```
 
-## Frames-in-flight
+## Frames in flight
 
 Short intro on the whys
 
@@ -495,6 +494,8 @@ To be able to access the buffer in our shader, we then get it's device address a
 
 ## Sync objects
 
+Very explicit in Vulkan. 
+
 No need to deal with in GL (driver cared for you), but Vulkan requires this. One of the hardest part to get right. Doing stuff wrong might work on one GPU but fail on the other. Note on using syncval in Vkconfig. One thing old apis did completely implicitly was GPU/CPU sync. This is explicit in Vulkan. We need to make sure the CPU doesn't start writing to resources still in use by the GPU (read-after-write hazard). As for semaphores, link to guide chapter. Explain two sync objects. Fences for CPU/GPU sync, Semaphores for GPU-only sync. Mention timeline sempahores, not used here due to WSI and sync being pretty eas anyway.
 
 ```cpp
@@ -524,6 +525,27 @@ chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
 VkCommandBufferAllocateInfo cbAllocCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = maxFramesInFlight };
 chk(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
 ```
+
+## Descriptors
+
+@todo: move into textures chapter
+
+Short explanation of what they are, why the are needed and that for more complex setups descriptor indexing makes life easier. For buffers we use bda anyway.
+
+```cpp
+VkDescriptorPoolSize poolSizes[1]{ 
+	{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 }
+};
+VkDescriptorPoolCreateInfo descPoolCI{
+	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+	.maxSets = 1,
+	.poolSizeCount = 1,
+	.pPoolSizes = poolSizes
+};
+chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
+```
+
+desc set layout = defines interface between application and shader
 
 ## Loading a texture
 
@@ -667,7 +689,7 @@ std::vector<VkVertexInputAttributeDescription> vertexAttributes{
 	{ .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, uv) },
 };
 ```
-> **Note***: As another option for accessing vertices in the shader we could use buffer device address instead. That way we would skip the traditional vertex attributes and manually fetch that data in the shader using pointers. That's called "vertex pulling". On some devices that can be slower though, so we stick with the traditional way.
+> **Note**: As another option for accessing vertices in the shader we could use buffer device address instead. That way we would skip the traditional vertex attributes and manually fetch that data in the shader using pointers. That's called "vertex pulling". On some devices that can be slower though, so we stick with the traditional way.
 
 Now we start filling in the many `VkPipeline*CreateInfo` structures required to create a pipeline. We won't explain all of these in detail, you can read up on them in the [spec](https://docs.vulkan.org/refpages/latest/refpages/source/VkGraphicsPipelineCreateInfo.html). They're all kinda similar, and describe a particular part of the pipeline.
 
@@ -789,15 +811,47 @@ After a successful call to [`vkCreateGraphicsPipelines`](https://docs.vulkan.org
 
 ## Render loop
 
+Getting to this point took quite an effort but we're now ready to actually "draw" something to the screen. Like so much before, this is both explicit and indirect in Vulkan. Getting something displayed on screen nowadays is a complex matter compared to how early computer graphics worked. Esp. with an API that has to support so many different platforms and devices.
+
+This brings us to the render loop, in which we'll take user-input, render our scene, update shader values and make sure all of this is properly synchronized between CPU and GPU and on the GPU itself. It's another area that *would* require platform-specific handling. But again SFML will do away with that and simplify the actual loop:
+
+```cpp
+sf::Clock clock;
+while (window.isOpen()) {
+	// Synchronization
+	// Update uniform data
+	// Build command buffer
+	// Submit to graphics queue
+	// Event polling
+	sf::Time elapsed = clock.restart();
+	while (const std::optional event = window.pollEvent()) {		
+		if (event->is<sf::Event::Closed>()) {
+			window.close();
+		}		
+		...
+	}
+}
+```
+
+The loop will be executed as long as the window stays open. SFML also gives us a precise [clock](https://www.sfml-dev.org/documentation/3.0.2/classsf_1_1Clock.html) that we can use to measure elapsed time for framerate-independent calculations like rotations.
+
+There's a lot happening inside the loop, so we'll look at each part separately.
+
 ### Sync
 
 Make sure we don't record a certain command buffer on the CPU until execution of it has finished on the GPU. That's what fences can be used for.
 
 ### Update shader data
 
-### Draw
+### Build command buffers
 
 Tell why we recreate CBs (it's cheap and simplifies things)
+
+Reference dynamic rendering, explicit barriers, bind stuff, issue draw commands
+
+### Submit command buffers
+
+### Present images
 
 ### Event polling
 
