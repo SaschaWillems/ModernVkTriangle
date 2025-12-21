@@ -451,67 +451,47 @@ constexpr uint32_t maxFramesInFlight{ 2 };
 std::array<UniformBuffers, maxFramesInFlight> uniformBuffers;
 ```
 
-## Descriptors
-
-Short explanation of what they are, why the are needed and that for more complex setups descriptor indexing makes life easier.
-
-```cpp
-VkDescriptorPoolSize poolSizes[2]{
-	{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = maxFramesInFlight },
-	{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 }
-};
-VkDescriptorPoolCreateInfo descPoolCI{
-	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-	.maxSets = maxFramesInFlight + 1,
-	.poolSizeCount = 2,
-	.pPoolSizes = poolSizes
-};
-chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
-```
-
-desc set layout = defines interface between application and shader
-
 ## Uniform buffers
 
-Used to pass data to the shaders.
+We also want to pass dynamic values like matrices to our shaders. These can change at any time, e.g. by user input. For that we are going to use a different buffer type (than for mesh data), namely uniform buffers.
 
-More flexible than passing fixed vertex data, but also more involved.
+Uniform here means that the data provided to the GPU by such a buffer is uniform (aka constant) across all shader invocations for a draw call. This is an important guarantee for the GPU and also one of the reason we have one uniform buffer per frame in flight. Update uniform data from the CPU while the GPU hasn't finished reading it might cause all sorts of issues.
 
-Explain why they're called like that.
+If we were to use older Vulkan versions we now *would* have to deal with descriptors, a fundamental but partially limiting and hard to manage part of Vulkan. 
 
-"that is uniform (constant) for all vertices/fragments within a single draw call"
+But by using Vulkan 1.3's [Buffer device address](https://docs.vulkan.org/guide/latest/buffer_device_address.html) feature, we can do away with descriptors (for buffers). Instead of having to access them through descriptors, we can access buffers via their address using pointer syntax in the shader. Not only does that make things easier to understand, it also removes some coupling and requires less code.
 
-" a variable is called "uniform" because its value remains constant (uniform) across all shader invocations for a single draw call. "
-
-@todo: maybe move to top
-
-```cpp
-VkDescriptorSetLayoutBinding descLayoutBinding{
-	.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-	.descriptorCount = 1,
-	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT
-};
-VkDescriptorSetLayoutCreateInfo descLayoutCI{
-	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-	.bindingCount = 1,
-	.pBindings = &descLayoutBinding
-};
-chk(vkCreateDescriptorSetLayout(device, &descLayoutCI, nullptr, &descriptorSetLayout));
-`` 
+As mentioned in [Frames in flight](#frames-in-flight) we create one uniform buffer per max. number of frames in flight. That way we can have CPU and GPU work in parallel to some extent (more on that later):
 
 ```cpp
 for (auto i = 0; i < maxFramesInFlight; i++) {
-	VkBufferCreateInfo uBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = sizeof(glm::mat4), .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
-	VmaAllocationCreateInfo uBufferAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
+	VkBufferCreateInfo uBufferCI{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = sizeof(glm::mat4),
+		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+	};
+	VmaAllocationCreateInfo uBufferAllocCI{
+		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+		.usage = VMA_MEMORY_USAGE_AUTO
+	};
 	chk(vmaCreateBuffer(allocator, &uBufferCI, &uBufferAllocCI, &uniformBuffers[i].buffer, &uniformBuffers[i].allocation, nullptr));
 	vmaMapMemory(allocator, uniformBuffers[i].allocation, &uniformBuffers[i].mapped);
-	VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .descriptorPool = descriptorPool, .descriptorSetCount = 1, .pSetLayouts = &descriptorSetLayout };
-	chk(vkAllocateDescriptorSets(device, &allocInfo, &uniformBuffers[i].descriptorSet));
-	VkDescriptorBufferInfo descBuffInfo{ .buffer = uniformBuffers[i].buffer, .range = VK_WHOLE_SIZE };
-	VkWriteDescriptorSet writeDescSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = uniformBuffers[i].descriptorSet, .dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .pBufferInfo = &descBuffInfo, };
-	vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+```
+
+Creating uniform buffers is similar to creating the vertex/index buffers for our mesh. The create info structure states that we want to create uniform buffer (`VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT`) that we access via it's device address (`VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`). We pass only a single matrix, so the size is exactly that of a single 4x4 matrix (`glm::mat4`). We again use VMA to handle the allocation, using the same flags as for the vertex/index buffer to make sure we get a buffer that's both accessible by the GPU and GPU. Once the buffer has been created we map it persistent. Unlike in older APIs, this is perfectly fine in Vulkan and makes it easier to update the buffers later on.
+
+> **Note:** Unlike larger, static buffers, uniform buffers don't have to be stored in the GPU's VRAM. While we still ask VMA for such a memory type, falling back to CPU side memory wouldn't be an issue as uniform data is comparably small.
+
+```cpp
+	VkBufferDeviceAddressInfo uBufferBdaInfo{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		.buffer = uniformBuffers[i].buffer
+	};
+	uniformBuffers[i].deviceAddress = vkGetBufferDeviceAddress(device, &uBufferBdaInfo);
 }
 ```
+
+To be able to access the buffer in our shader, we then get it's device address and store it for later access.
 
 ## Sync objects
 
