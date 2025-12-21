@@ -184,7 +184,7 @@ const VkPhysicalDeviceFeatures enabledVk10Features{
 	.samplerAnisotropy = VK_TRUE
 };
 ```
-[`Dynamic rendering`](https://docs.vulkan.org/guide/latest/buffer_device_address.html) greatly simplifies render pass setup, one of the most criticized Vulkan areas. [`Buffer device address`](https://docs.vulkan.org/guide/latest/buffer_device_address.html) lets us access buffers from shaders via pointer, saving is from having to go through descriptors. The combination of these features makes Vulkan much easier to use.
+[Dynamic rendering](https://docs.vulkan.org/guide/latest/buffer_device_address.html) greatly simplifies render pass setup, one of the most criticized Vulkan areas. [Buffer device address](https://docs.vulkan.org/guide/latest/buffer_device_address.html) lets us access buffers from shaders via pointers, saving is from having to go through descriptors. The combination of these features makes Vulkan much easier to use.
 
 We also enable [anisotropic filtering](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) for textures images for better filtering.
 
@@ -642,7 +642,170 @@ float4 main(VSOutput input) {
 
 ## Graphics pipeline
 
-Only explain relevant parts.
+Another area where Vulkan strongly differs from OpenGL is state management. OpenGL was a huge state machine, and that state could be changed at any time. This made it hard for drivers to optimize things. Vulkan fundamentally changes that by introducing pipeline state objects. These are used to provide a full set of pipeline state in a "compiled" pipeline object, giving the driver a chance to optimize them. These objects also allow for pipeline object creation in e.g. a separate thread. If you need different pipeline state that means you have to create a new pipeline state object. 
+
+> **Note:** There is *some* state in Vulkan that can be dynamic. Mostly basic state like viewport and scissor setup. Them being dynamic is not an issue for drivers. There are several extensions that make additional state dynamic, but we're not going to use them here.
+
+Vulkan supports [dedicated pipeline types](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineBindPoint.html) for graphics, compute, raytracing. Setting up one of these depends on that type. We only do graphics (aka [rasterization](https://en.wikipedia.org/wiki/Rasterisation)) so we'll be creating a graphics pipeline.
+
+First we create a pipeline layout. This defines the interface between the pipeline and our shader. Pipeline layouts are separate objects as you can mix and match them for use with other pipelines:
+
+```cpp
+VkPushConstantRange pushConstantRange{
+	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+	.size = sizeof(VkDeviceAddress)
+};
+VkPipelineLayoutCreateInfo pipelineLayoutCI{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+	.setLayoutCount = 1,
+	.pSetLayouts = &descriptorSetLayoutTex,
+	.pushConstantRangeCount = 1,
+	.pPushConstantRanges = &pushConstantRange
+};
+chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayout));
+```
+
+The [`pushConstantRange`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPushConstantRange.html) defines a range of values that we can directly push to the shader without having to go through a buffer. We use these to pass a pointer to the uniform buffer(more on that later). The descriptor set layouts (`pSetLayouts`) define the interface to the shader resources. In our case that's only one layout for passing the texture image descriptors. The call to [`vkCreatePipelineLayout`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineLayoutCreateInfo.html) will create the pipeline layout we can then use for our pipeline.
+
+Another part of our interface between the pipeline and the shader is the layout of the vertex data. In the [mesh loading chapter](#loading-meshes) we defined a basic vertex structure that we now need to specify in Vulkan terms. Setting this up in Vulkan is very flexible, but in our case it's pretty simple.
+
+We use a single vertex buffer, so we require one [vertex binding point](https://docs.vulkan.org/refpages/latest/refpages/source/VkVertexInputBindingDescription.html). The `stride` matches the size of our vertex structure as our vertices are stored directly adjacent in memory. The `inputRate` is per-Vertex, meaning that the data pointer advances for ever vertex read:
+
+```cpp
+VkVertexInputBindingDescription vertexBinding{
+	 .binding = 0,
+	 .stride = sizeof(Vertex),
+	 .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+};
+```
+
+Next we specify how [vertex attributes](https://docs.vulkan.org/refpages/latest/refpages/source/VkVertexInputAttributeDescription.html) like position and texture coordinates are slaid out in memory. This exactly matches our simple vertex structure:
+
+```cpp
+std::vector<VkVertexInputAttributeDescription> vertexAttributes{
+	{ .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT },
+	{ .location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, uv) },
+};
+```
+> **Note***: As another option for accessing vertices in the shader we could use buffer device address instead. That way we would skip the traditional vertex attributes and manually fetch that data in the shader using pointers. That's called "vertex pulling". On some devices that can be slower though, so we stick with the traditional way.
+
+Now we start filling in the many `VkPipeline*CreateInfo` structures required to create a pipeline. We won't explain all of these in detail, you can read up on them in the [spec](https://docs.vulkan.org/refpages/latest/refpages/source/VkGraphicsPipelineCreateInfo.html). They're all kinda similar, and describe a particular part of the pipeline.
+
+First up is the pipeline state for the [vertex input](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineVertexInputStateCreateInfo.html) we just defined above:
+
+```cpp
+VkPipelineVertexInputStateCreateInfo vertexInputState{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+	.vertexBindingDescriptionCount = 1,
+	.pVertexBindingDescriptions = &vertexBinding,
+	.vertexAttributeDescriptionCount = 2,
+	.pVertexAttributeDescriptions = vertexAttributes.data(),
+};
+```
+
+Another structure directly connected to our vertex data is the [input assembly state](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineInputAssemblyStateCreateInfo.html). It defines how [primitives](VkPipelineInputAssemblyStateCreateInfo) are assembled. We want to render a list of separate triangles, so we use [`VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPrimitiveTopology.html):
+
+```cpp
+VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+	.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+};
+```
+
+An important part of any pipeline are the [shaders](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineShaderStageCreateInfo.html) we want to use and the pipeline stages they map to. Having only a single set of shaders is the reason why we only need a single pipeline. Thanks to Slang we get all stages in a single shader module:
+
+```cpp
+std::vector<VkPipelineShaderStageCreateInfo> shaderStages{
+	{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = shaderModule, .pName = "main"},
+	{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = shaderModule, .pName = "main" }
+};
+```
+
+> **Note:** If you'd wanted to use additional shaders to render objects in different ways, you'd have to create multiple pipelines.
+
+Next we configure the [viewport state](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineViewportStateCreateInfo.html). We use one viewport and one scissor, and we also want them to be dynamic state so we don't have to recreate the pipeline if any of those changes, e.g. when resizing the window. It's one of the few dynamic states that have been there since Vulkan 1.0:
+
+```cpp
+VkPipelineViewportStateCreateInfo viewportState{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+	.viewportCount = 1,
+	.scissorCount = 1
+};
+std::vector<VkDynamicState> dynamicStates{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+VkPipelineDynamicStateCreateInfo dynamicState{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+	.dynamicStateCount = 2,
+	.pDynamicStates = dynamicStates.data()
+};
+```
+
+As we want to use [depth buffering](#depth-attachment), we configure the [depth/stencil state](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineDepthStencilStateCreateInfo.html) to enable both depth tests and writes and set the compare operation so that fragments closer to the viewer are passing depth tests:
+
+```cpp
+VkPipelineDepthStencilStateCreateInfo depthStencilState{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+	.depthTestEnable = VK_TRUE,
+	.depthWriteEnable = VK_TRUE,
+	.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL
+};
+```
+
+The following state tells the pipeline that we want to use dynamic rendering instead of the cumbersome render passes. Unlike render passes, setting this up is fairly trivial and also removes a tight coupling between the pipeline and a render pass. For dynamic rendering we just have to specify the number and formats our the attachments we plan to use (later on):
+
+```cpp
+VkPipelineRenderingCreateInfo renderingCI{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+	.colorAttachmentCount = 1,
+	.pColorAttachmentFormats = &imageFormat,
+	.depthAttachmentFormat = depthFormat
+};
+```
+
+> **Note:** As this functionality was added at a later point in Vulkan's life, there is no dedicated member for it in the pipeline create info. We instead pass this to `pNext` (see below)
+
+We don't make use of the following state, but they must be specified and also need to have some sane default values. So we set [blending](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineColorBlendStateCreateInfo.html), [rasterization](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineRasterizationStateCreateInfo.html) and [multisampling](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineMultisampleStateCreateInfo.html) to default values:
+
+```cpp
+VkPipelineColorBlendAttachmentState blendAttachment{
+	.colorWriteMask = 0xF
+};
+VkPipelineColorBlendStateCreateInfo colorBlendState{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+	.attachmentCount = 1,
+	.pAttachments = &blendAttachment
+};
+VkPipelineRasterizationStateCreateInfo rasterizationState{
+	 .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+	 .lineWidth = 1.0f
+};
+VkPipelineMultisampleStateCreateInfo multisampleState{
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+	.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+};
+```
+
+With all relevant pipeline state create structures properly set up, we wire them up to finally create our graphics pipeline:
+
+```cpp
+VkGraphicsPipelineCreateInfo pipelineCI{
+	.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+	.pNext = &renderingCI,
+	.stageCount = 2,
+	.pStages = shaderStages.data(),
+	.pVertexInputState = &vertexInputState,
+	.pInputAssemblyState = &inputAssemblyState,
+	.pViewportState = &viewportState,
+	.pRasterizationState = &rasterizationState,
+	.pMultisampleState = &multisampleState,
+	.pDepthStencilState = &depthStencilState,
+	.pColorBlendState = &colorBlendState,
+	.pDynamicState = &dynamicState,
+	.layout = pipelineLayout
+};
+chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline));
+```
+
+After a successful call to [`vkCreateGraphicsPipelines`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateGraphicsPipelines.html), our graphics pipeline is read to be used for rendering.
 
 ## Render loop
 
