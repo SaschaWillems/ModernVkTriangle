@@ -513,7 +513,7 @@ for (auto& semaphore : renderSemaphores) {
 
 ## Command buffers
 
-First used to submit copy for image, so need to explained before that. Work in VK isn't directly issued but rather compiled into command buffers. CBs are then submitted to a queue. That way you can create CBs in multiple threads or submit to different queues.
+First used to submit copy for image, so need to explained before that. Work in VK isn't directly issued but rather recordeed into command buffers. CBs are then submitted to a queue. That way you can create CBs in multiple threads or submit to different queues.
 
 ```cpp
 VkCommandPoolCreateInfo commandPoolCI{
@@ -644,7 +644,7 @@ float4 main(VSOutput input) {
 
 ## Graphics pipeline
 
-Another area where Vulkan strongly differs from OpenGL is state management. OpenGL was a huge state machine, and that state could be changed at any time. This made it hard for drivers to optimize things. Vulkan fundamentally changes that by introducing pipeline state objects. These are used to provide a full set of pipeline state in a "compiled" pipeline object, giving the driver a chance to optimize them. These objects also allow for pipeline object creation in e.g. a separate thread. If you need different pipeline state that means you have to create a new pipeline state object. 
+Another area where Vulkan strongly differs from OpenGL is state management. OpenGL was a huge state machine, and that state could be changed at any time. This made it hard for drivers to optimize things. Vulkan fundamentally changes that by introducing pipeline state objects. They provide a full set of pipeline state in a "compiled" pipeline object, giving the driver a chance to optimize them. These objects also allow for pipeline object creation in e.g. a separate thread. If you need different pipeline state that means you have to create a new pipeline state object. 
 
 > **Note:** There is *some* state in Vulkan that can be dynamic. Mostly basic state like viewport and scissor setup. Them being dynamic is not an issue for drivers. There are several extensions that make additional state dynamic, but we're not going to use them here.
 
@@ -867,6 +867,37 @@ Tell why we recreate CBs (it's cheap and simplifies things)
 Reference dynamic rendering, explicit barriers, bind stuff, issue draw commands
 
 ### Submit command buffers
+
+In order to execute the commands we just recorded we need to submit the command buffer to a matching queue. In a real-world application it's not uncommon that have multiple queues of different types and also more complex submission patterns. But we only use graphics commands (no compute or ray tracing) and as such also only have a single graphics queue to which we submit our current frame's command buffer:
+
+```cpp
+VkPipelineStageFlags waitStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+VkSubmitInfo submitInfo{
+	.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+	.waitSemaphoreCount = 1,
+	.pWaitSemaphores = &presentSemaphores[frameIndex],
+	.pWaitDstStageMask = &waitStages,
+	.commandBufferCount = 1,
+	.pCommandBuffers = &cb,
+	.signalSemaphoreCount = 1,
+	.pSignalSemaphores = &renderSemaphores[imageIndex],
+};
+chk(vkQueueSubmit(queue, 1, &submitInfo, fences[frameIndex]));
+```
+
+The [`VkSubmitInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkSubmitInfo.html) structure needs some explanation, esp. in regards to synchronization. Earlier on we learned about the [synchronization primitives](#sync-objects) that we need to properly synchronize work between CPU and GPU and the GPU itself. And this is where it all comes together.
+
+The semaphore in `pWaitSemaphores` makes sure the submitted command buffer(s) won't start execution before the presentation of the current frame has finished. The pipeline stage in `pWaitDstStageMask` will make that wait happen at the color attachment output stage of the pipeline, so (in theory) the GPU might already start doing work on parts of the pipeline that come before this, e.g. fetching vertices. The signal semaphore in `pSignalSemaphores` on the other hand is a semaphore that's signalled by the GPU once command buffer execution has completed. This combination ensures that no read/write hazards occur that would have the GPU read from or write to resources still in use.
+
+Notice the distinction between using `frameIndex` for the present semaphore and `imageIndex` instead for the render semaphore. This is because `vkQueuePresentKHR` (see below) has no way to signal without a certain extension (not yet available everywhere). To work around this we decouple the two semaphore types and use one present semaphore per swapchain image instead. An in-depth explanation for this can be found in the [Vulkan Guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html),
+
+> **Note:** Submissions can have multiple wait and signal semaphores and wait stages. In a more complex application (than ours) which might mix graphics with compute, it's important to keep synchronization scope as narrow as possible to allow for the GPU to overlap work. This is one of the hardest parts to get right in Vulkan and often requires the use of vendor-specific profilers.
+
+Once work has been submitted, we can calculate the next frame index:
+
+```cpp
+frameIndex = (frameIndex + 1) % maxFramesInFlight;
+```
 
 ### Present images
 
