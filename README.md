@@ -466,7 +466,7 @@ As mentioned in [Frames in flight](#frames-in-flight) we create one uniform buff
 for (auto i = 0; i < maxFramesInFlight; i++) {
 	VkBufferCreateInfo uBufferCI{
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = sizeof(glm::mat4),
+		.size = sizeof(gUniformData),
 		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 	};
 	VmaAllocationCreateInfo uBufferAllocCI{
@@ -477,7 +477,7 @@ for (auto i = 0; i < maxFramesInFlight; i++) {
 	vmaMapMemory(allocator, uniformBuffers[i].allocation, &uniformBuffers[i].mapped);
 ```
 
-Creating uniform buffers is similar to creating the vertex/index buffers for our mesh. The create info structure states that we want to create uniform buffer (`VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT`) that we access via it's device address (`VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`). We pass only a single matrix, so the size is exactly that of a single 4x4 matrix (`glm::mat4`). We again use VMA to handle the allocation, using the same flags as for the vertex/index buffer to make sure we get a buffer that's both accessible by the GPU and GPU. Once the buffer has been created we map it persistent. Unlike in older APIs, this is perfectly fine in Vulkan and makes it easier to update the buffers later on.
+Creating uniform buffers is similar to creating the vertex/index buffers for our mesh. The create info structure states that we want to create uniform buffer (`VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT`) that we access via it's device address (`VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`). The buffer size must (at least) match that of our CPU data structure. We again use VMA to handle the allocation, using the same flags as for the vertex/index buffer to make sure we get a buffer that's both accessible by the GPU and GPU. Once the buffer has been created we map it persistent. Unlike in older APIs, this is perfectly fine in Vulkan and makes it easier to update the buffers later on, as we can just keep a permanent pointer to the buffer (memory).
 
 > **Note:** Unlike larger, static buffers, uniform buffers don't have to be stored in the GPU's VRAM. While we still ask VMA for such a memory type, falling back to CPU side memory wouldn't be an issue as uniform data is comparably small.
 
@@ -842,6 +842,23 @@ There's a lot happening inside the loop, so we'll look at each part separately.
 Make sure we don't record a certain command buffer on the CPU until execution of it has finished on the GPU. That's what fences can be used for.
 
 ### Update shader data
+
+We want the next frame to use up-to-date user inputs. For that we calculate a model view projection matrix from the current camera rotation and position using glm:
+
+```cpp
+glm::quat rotQ = glm::quat(camRotation);
+const glm::mat4 modelmat = glm::translate(glm::mat4(1.0f), camPos) * glm::mat4_cast(rotQ);
+UniformData uniformData{ .mvp = glm::perspective(glm::radians(45.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f) * modelmat };
+1f, 32.0f) * modelmat;
+```
+
+A simple `memcpy` to the uniform buffer's persistently mapped pointer is sufficient to make this available to the GPU (and with that our shader):
+
+```cpp
+memcpy(uniformBuffers[frameIndex].mapped, &mvp, sizeof(UniformData));
+```
+
+This works because the [uniform buffers](#uniform-buffers) are stored in a memory type accessible by both the CPU (for writing) and the GPU (for reading). With the preceding fence synchronization we also made sure that the CPU won't start writing to that uniform buffer before the GPU has finished reading from it.
 
 ### Build command buffers
 

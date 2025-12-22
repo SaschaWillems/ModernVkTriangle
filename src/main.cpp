@@ -62,6 +62,9 @@ std::array<VkSemaphore, maxFramesInFlight> presentSemaphores;
 std::vector<VkSemaphore> renderSemaphores;
 VmaAllocation vBufferAllocation{ VK_NULL_HANDLE };
 VkBuffer vBuffer{ VK_NULL_HANDLE };
+struct UniformData {
+	glm::mat4 mvp;
+};
 struct UniformBuffers {
 	VmaAllocation allocation{ VK_NULL_HANDLE };
 	VkBuffer buffer{ VK_NULL_HANDLE };
@@ -215,7 +218,7 @@ int main()
 	vmaUnmapMemory(allocator, vBufferAllocation);
 	// Uniform buffers
 	for (auto i = 0; i < maxFramesInFlight; i++) {
-		VkBufferCreateInfo uBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = sizeof(glm::mat4), .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+		VkBufferCreateInfo uBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = sizeof(UniformData), .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 		VmaAllocationCreateInfo uBufferAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 		chk(vmaCreateBuffer(allocator, &uBufferCI, &uBufferAllocCI, &uniformBuffers[i].buffer, &uniformBuffers[i].allocation, nullptr));
 		vmaMapMemory(allocator, uniformBuffers[i].allocation, &uniformBuffers[i].mapped);
@@ -405,13 +408,13 @@ int main()
 		vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX);
 		vkResetFences(device, 1, &fences[frameIndex]);
 		vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
-		auto cb = commandBuffers[frameIndex];
-		// Update UBO
+		// Update uniform data
 		glm::quat rotQ = glm::quat(camRotation);
 		const glm::mat4 modelmat = glm::translate(glm::mat4(1.0f), camPos) * glm::mat4_cast(rotQ);
-		const glm::mat4 mvp = glm::perspective(glm::radians(45.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f) * modelmat;
-		memcpy(uniformBuffers[frameIndex].mapped, &mvp, sizeof(glm::mat4));
-		// Build CB
+		UniformData uniformData{ .mvp = glm::perspective(glm::radians(45.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f) * modelmat };
+		memcpy(uniformBuffers[frameIndex].mapped, &uniformData, sizeof(UniformData));
+		// Build command buffer
+		auto cb = commandBuffers[frameIndex];
 		VkCommandBufferBeginInfo cbBI { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, };
 		vkResetCommandBuffer(cb, 0);
 		vkBeginCommandBuffer(cb, &cbBI);
