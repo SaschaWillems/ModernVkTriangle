@@ -1,6 +1,6 @@
 <!--
 Copyright (c) 2025, Sascha Willems
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 # How to Vulkan in 202X
@@ -22,6 +22,10 @@ The tutorial is focused on writing actual Vulkan code and getting things up and 
 ## Goal
 
 At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file (`main.src`) with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
+
+## License
+
+The contents of this document are licensed under the [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license. Source code listings and files are licensed under the MIT license.
 
 ## Libraries
 
