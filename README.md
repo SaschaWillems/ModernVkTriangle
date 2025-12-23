@@ -198,7 +198,6 @@ Aside from these, we also enable [anisotropic filtering](https://docs.vulkan.org
 
 > **Note:** Another Vulkan struct member you're going to see often is `pNext`. This can be used to create a linked list of structures that are passed into a function call. The driver then uses the `sType` member of each structure in that list to identify said structure's type.
 
-
 With everything in place, we can create a logical device passing all required data: features (for the different core versions), extensions and the queue families we want to use:
 
 ```cpp

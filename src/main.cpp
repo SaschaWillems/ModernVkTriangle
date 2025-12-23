@@ -19,8 +19,8 @@
 #include <glm/gtc/quaternion.hpp>
 #include "slang/include/slang.h"
 #include "slang/include/slang-com-ptr.h"
-#define DDSKTX_IMPLEMENT
-#include "dds-ktx/dds-ktx.h"
+#include <ktx.h>
+#include <ktxvulkan.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
@@ -124,7 +124,7 @@ int main()
 	const float qfpriorities{ 1.0f };
 	VkDeviceQueueCreateInfo queueCI{ .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = queueFamily, .queueCount = 1, .pQueuePriorities = &qfpriorities };
 	VkPhysicalDeviceVulkan12Features enabledVk12Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .bufferDeviceAddress = true };
-	VkPhysicalDeviceVulkan13Features enabledVk13Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .pNext = &enabledVk12Features, .dynamicRendering = true };
+	VkPhysicalDeviceVulkan13Features enabledVk13Features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, .pNext = &enabledVk12Features, .synchronization2 = true, .dynamicRendering = true };
 	const std::vector<const char*> deviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	const VkPhysicalDeviceFeatures enabledVk10Features{ .samplerAnisotropy = VK_TRUE };
 	VkDeviceCreateInfo deviceCI{
@@ -298,31 +298,37 @@ int main()
 	chk(vkAllocateCommandBuffers(device, &cbOneTimeAI, &cbOneTime));
 	VkCommandBufferBeginInfo cbOneTimeBI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, };
 	vkBeginCommandBuffer(cbOneTime, &cbOneTimeBI);
-	VkImageMemoryBarrier barrierTex0{
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+	VkImageMemoryBarrier2 barrierTexImage{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 		.srcAccessMask = 0,
-		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
+		.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
 		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		.image = texture.image,
 		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 	};
-	vkCmdPipelineBarrier(cbOneTime, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrierTex0);
+	VkDependencyInfo barrierTexInfo{ .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrierTexImage };
+	vkCmdPipelineBarrier2(cbOneTime, &barrierTexInfo);
 	VkBufferImageCopy copyRegion{
 		.imageSubresource{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .layerCount = 1 },
 		.imageExtent{.width = ktxTexture->baseWidth, .height = ktxTexture->baseHeight, .depth = 1 },
 	};
 	vkCmdCopyBufferToImage(cbOneTime, stagingBuffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
-	VkImageMemoryBarrier barrierTex1{
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+	VkImageMemoryBarrier2 barrierTexRead{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
 		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
 		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		.image = texture.image,
 		.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 	};
-	vkCmdPipelineBarrier(cbOneTime, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrierTex1);
+	barrierTexInfo.pImageMemoryBarriers = &barrierTexRead;
+	vkCmdPipelineBarrier2(cbOneTime, &barrierTexInfo);
 	vkEndCommandBuffer(cbOneTime);
 	VkSubmitInfo oneTimeSI{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cbOneTime };
 	chk(vkQueueSubmit(queue, 1, &oneTimeSI, fenceOneTime));
