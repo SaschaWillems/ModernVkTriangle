@@ -239,10 +239,6 @@ int main()
 	chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
 	VkCommandBufferAllocateInfo cbAllocCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = maxFramesInFlight };
 	chk(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
-	// Descriptor pool
-	VkDescriptorPoolSize poolSizes[1]{ {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 } };
-	VkDescriptorPoolCreateInfo descPoolCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .maxSets = 1, .poolSizeCount = 1, .pPoolSizes = poolSizes };
-	chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
 	// Texture image
 	ktxTexture* ktxTexture{ nullptr };
 	ktxTexture_CreateFromNamedFile("assets/suzanne.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &ktxTexture);
@@ -262,34 +258,15 @@ int main()
 	chk(vmaCreateImage(allocator, &texImgCI, &uImageAllocCI, &texture.image, &texture.allocation, nullptr));
 	VkImageViewCreateInfo texVewCI{ .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = texture.image, .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = texImgCI.format, .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 } };
 	chk(vkCreateImageView(device, &texVewCI, nullptr, &texture.view));
-	VkDescriptorSetLayoutBinding descLayoutBindingTex{ .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorSetLayoutCreateInfo descLayoutTexCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 1,  .pBindings = &descLayoutBindingTex };
-	chk(vkCreateDescriptorSetLayout(device, &descLayoutTexCI, nullptr, &descriptorSetLayoutTex));
-	VkDescriptorSetAllocateInfo texDescSetAlloc{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .descriptorPool = descriptorPool, .descriptorSetCount = 1, .pSetLayouts = &descriptorSetLayoutTex };
-	chk(vkAllocateDescriptorSets(device, &texDescSetAlloc, &texture.descriptorSet));
-	// Sampler
-	VkSamplerCreateInfo samplerCI{
-		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		.magFilter = VK_FILTER_LINEAR,
-		.minFilter = VK_FILTER_LINEAR,
-		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-		.anisotropyEnable = VK_TRUE,
-		.maxAnisotropy = 8.0f,
-		.maxLod = 1.0f,
-	};
-	chk(vkCreateSampler(device, &samplerCI, nullptr, &texture.sampler));
-	VkDescriptorImageInfo descTexInfo{ .sampler = texture.sampler, .imageView = texture.view, .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL_KHR };
-	VkWriteDescriptorSet writeDescSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = texture.descriptorSet, .dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &descTexInfo };
-	vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
-	// Copy (first mip only)
-	VkBuffer stagingBuffer{};
-	VmaAllocation stagingAllocation{};
-	VkBufferCreateInfo stgBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = (uint32_t)ktxTexture->dataSize, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
-	VmaAllocationCreateInfo stgAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
-	chk(vmaCreateBuffer(allocator, &stgBufferCI, &stgAllocCI, &stagingBuffer, &stagingAllocation, nullptr));
-	void* stagingPtr{ nullptr };
-	vmaMapMemory(allocator, stagingAllocation, &stagingPtr);
-	memcpy(stagingPtr, ktxTexture->pData, ktxTexture->dataSize);
+	// Upload
+	VkBuffer imgSrcBuffer{};
+	VmaAllocation imgSrcAllocation{};
+	VkBufferCreateInfo imgSrcBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = (uint32_t)ktxTexture->dataSize, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
+	VmaAllocationCreateInfo imgSrcAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
+	chk(vmaCreateBuffer(allocator, &imgSrcBufferCI, &imgSrcAllocCI, &imgSrcBuffer, &imgSrcAllocation, nullptr));
+	void* imgSrcBufferPtr{ nullptr };
+	vmaMapMemory(allocator, imgSrcAllocation, &imgSrcBufferPtr);
+	memcpy(imgSrcBufferPtr, ktxTexture->pData, ktxTexture->dataSize);
 	VkFenceCreateInfo fenceOneTimeCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 	VkFence fenceOneTime{};
 	chk(vkCreateFence(device, &fenceOneTimeCI, nullptr, &fenceOneTime));
@@ -315,7 +292,7 @@ int main()
 		.imageSubresource{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .layerCount = 1 },
 		.imageExtent{.width = ktxTexture->baseWidth, .height = ktxTexture->baseHeight, .depth = 1 },
 	};
-	vkCmdCopyBufferToImage(cbOneTime, stagingBuffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+	vkCmdCopyBufferToImage(cbOneTime, imgSrcBuffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 	VkImageMemoryBarrier2 barrierTexRead{
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 		.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -333,9 +310,32 @@ int main()
 	VkSubmitInfo oneTimeSI{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cbOneTime };
 	chk(vkQueueSubmit(queue, 1, &oneTimeSI, fenceOneTime));
 	chk(vkWaitForFences(device, 1, &fenceOneTime, VK_TRUE, UINT64_MAX));
-	vmaUnmapMemory(allocator, stagingAllocation);
-	vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+	vmaUnmapMemory(allocator, imgSrcAllocation);
+	vmaDestroyBuffer(allocator, imgSrcBuffer, imgSrcAllocation);
 	ktxTexture_Destroy(ktxTexture);
+	// Sampler
+	VkSamplerCreateInfo samplerCI{
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.magFilter = VK_FILTER_LINEAR,
+		.minFilter = VK_FILTER_LINEAR,
+		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+		.anisotropyEnable = VK_TRUE,
+		.maxAnisotropy = 8.0f,
+		.maxLod = 1.0f,
+	};
+	chk(vkCreateSampler(device, &samplerCI, nullptr, &texture.sampler));
+	// Descriptor
+	VkDescriptorPoolSize poolSizes[1]{ {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 } };
+	VkDescriptorPoolCreateInfo descPoolCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .maxSets = 1, .poolSizeCount = 1, .pPoolSizes = poolSizes };
+	chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
+	VkDescriptorSetLayoutBinding descLayoutBindingTex{ .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutCreateInfo descLayoutTexCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 1,  .pBindings = &descLayoutBindingTex };
+	chk(vkCreateDescriptorSetLayout(device, &descLayoutTexCI, nullptr, &descriptorSetLayoutTex));
+	VkDescriptorSetAllocateInfo texDescSetAlloc{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, .descriptorPool = descriptorPool, .descriptorSetCount = 1, .pSetLayouts = &descriptorSetLayoutTex };
+	chk(vkAllocateDescriptorSets(device, &texDescSetAlloc, &texture.descriptorSet));
+	VkDescriptorImageInfo descTexInfo{ .sampler = texture.sampler, .imageView = texture.view, .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL_KHR };
+	VkWriteDescriptorSet writeDescSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = texture.descriptorSet, .dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &descTexInfo };
+	vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 	// Initialize Slang shader compiler
 	slang::createGlobalSession(slangGlobalSession.writeRef());
 	auto slangTargets{ std::to_array<slang::TargetDesc>({ {.format{SLANG_SPIRV}, .profile{slangGlobalSession->findProfile("spirv_1_4")} } }) };

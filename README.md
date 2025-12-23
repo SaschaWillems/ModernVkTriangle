@@ -557,7 +557,74 @@ desc set layout = defines interface between application and shader
 
 ## Loading a texture
 
-Pretty verbose in Vulkan. VK_EXT_host_image_copy simplifies this, but not widely available.
+We are now going to load the texture that'll be applied to our 3D model. In Vulkan, those are images, just like the swapchain or depth image. From a GPU's perspective, images are more complex than buffers, something that's reflected in the verbosity around getting them uploaded to the GPU. 
+
+> **Note:** Some extensions like [VK_EXT_host_image_copy](https://www.khronos.org/blog/copying-images-on-the-host-in-vulkan) or [VK_EXT_descriptor_buffer](https://www.khronos.org/blog/vk-ext-descriptor-buffer) are attempts at simplifying this part of the API. But none of these are part of a core version or widely supported. If VK_EXT_host_image_copy is available on your targets, you could use it to heavily simplify the upload part, as with it that part no longer requires a command buffer.
+
+There are lots of image formats, but we'll go with the [KTX library](https://www.khronos.org/ktx/), a container format by Khronos. Unlike formats such as JPEG or PNG, it stores images in native GPU formats, meaning wee can directly upload them without having to decompress or convert. It also supports GPU specific things like 3D textures and cubemaps. One tool for creating KTX image files is [PVRTexTool](https://developer.imaginationtech.com/solutions/pvrtextool/).
+
+With the help of that library, Loading such a file from disk is trivial:
+
+```cpp
+ktxTexture* ktxTexture{ nullptr };
+ktxTexture_CreateFromNamedFile("assets/suzanne.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &ktxTexture);
+```
+
+> **Note:** The texture we load uses an 8-bit per channel RGBA format, even though we don't use the alpha channel. You might be tempted to use RGB instead to save memory, but RGB isn't widely supported. If you used RGB formats in OpenGL the driver often secretly converted them to RGBA. In Vulkan trying to use an unsupported RGB format instead would just fail.
+
+Creating the image (object) is very similar to how we created the [depth attachment](#depth-attachment)
+
+```cpp
+VkImageCreateInfo texImgCI{
+	.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+	.imageType = VK_IMAGE_TYPE_2D,
+	.format = ktxTexture_GetVkFormat(ktxTexture),
+	.extent = {.width = ktxTexture->baseWidth, .height = ktxTexture->baseWidth, .depth = 1 },
+	.mipLevels = 1,
+	.arrayLayers = 1,
+	.samples = VK_SAMPLE_COUNT_1_BIT,
+	.tiling = VK_IMAGE_TILING_OPTIMAL,
+	.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+	.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+};
+VmaAllocationCreateInfo uImageAllocCI{ .usage = VMA_MEMORY_USAGE_AUTO };
+chk(vmaCreateImage(allocator, &texImgCI, &uImageAllocCI, &texture.image, &texture.allocation, nullptr));
+```
+
+We read the format from the texture using `ktxTexture_GetVkFormat`, width and height also come from the texture we just loaded. Our desired `usage` combination means that we want to transfer data loaded from disk to this image (`VK_IMAGE_LAYOUT_UNDEFINED`) and (at a later point) want to sample from it in a shader (`VK_IMAGE_USAGE_SAMPLED_BIT`). We again use `VK_IMAGE_LAYOUT_UNDEFINED` for the initial layout, as that's the only one allowed in this case (`VK_IMAGE_LAYOUT_PREINITIALIZED` e.g. only works with linear tiled images).
+
+Once again `vmaCreateImage` is used to create the image, with `VMA_MEMORY_USAGE_AUTO` making sure we get the most fitting memory type (GPU VRAM).
+
+With the empty image created it's time to upload data. Unlike with a buffer, we can't simply (mem)copy the image data to the image. That's because [optimal tiling](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html) stores texels in a hardware-specific layout and we have no way to convert to that. Instead we have to create an intermediate buffer that we copy the image data to, and then issue a command to the GPU that copies this buffer to the image and does the conversion.
+
+Creating that buffer is very much the same as creating the [uniform buffers](#uniform-buffers) with some minor differences:
+
+```cpp
+VkBuffer imgSrcBuffer{};
+VmaAllocation imgSrcAllocation{};
+VkBufferCreateInfo imgSrcBufferCI{
+	.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+	.size = (uint32_t)ktxTexture->dataSize,
+	.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT};
+VmaAllocationCreateInfo imgSrcAllocCI{
+	.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+	.usage = VMA_MEMORY_USAGE_AUTO
+};
+chk(vmaCreateBuffer(allocator, &imgSrcBufferCI, &imgSrcAllocCI, &imgSrcBuffer, &imgSrcAllocation, nullptr));
+```
+
+This buffer will onl be used as a temporary source for a buffer-to-image copy, so the only flag we need is [`VK_BUFFER_USAGE_TRANSFER_SRC_BIT´](https://docs.vulkan.org/refpages/latest/refpages/source/VkBufferUsageFlagBits.html). The allocation is one again handled by VMA.
+
+As the buffer was created with the mappable bit, getting the image data into that buffer is again just a matter of a simple `memcpy`:
+
+```cpp
+void* imgSrcBufferPtr{ nullptr };
+vmaMapMemory(allocator, imgSrcAllocation, &imgSrcBufferPtr);
+memcpy(imgSrcBufferPtr, ktxTexture->pData, ktxTexture->dataSize);
+```
+
+Next we need to copy the image data from that buffer to the optimal tiled image on the GPU. Without an extension like [VK_EXT_host_image_copy](https://www.khronos.org/blog/copying-images-on-the-host-in-vulkan) that's not possible on the CPU, but has to be done on the GPU. That requires us to use command buffers. 
+
 
 ## Shaders
 
