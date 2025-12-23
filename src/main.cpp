@@ -194,7 +194,7 @@ int main()
 	tinyobj::attrib_t attrib;
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
-	chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/monkey.obj"));
+	chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/suzanne.obj"));
 	const VkDeviceSize indexCount{shapes[0].mesh.indices.size()};	
 	std::vector<Vertex> vertices{};
 	std::vector<uint16_t> indices{};
@@ -244,8 +244,7 @@ int main()
 	VkDescriptorPoolCreateInfo descPoolCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .maxSets = 1, .poolSizeCount = 1, .pPoolSizes = poolSizes };
 	chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
 	// Texture image
-//	std::ifstream ktxFile("assets/texture0.ktx", std::ios::binary | std::ios::ate);
-	std::ifstream ktxFile("assets/vulkan.ktx", std::ios::binary | std::ios::ate);
+	std::ifstream ktxFile("assets/suzanne.ktx", std::ios::binary | std::ios::ate);
 	assert(ktxFile.is_open());
 	size_t ktxSize = ktxFile.tellg();
 	ktxFile.seekg(std::ios::beg);
@@ -474,7 +473,7 @@ int main()
 		};
 		vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
 		vkEndCommandBuffer(cb);
-		// Submit
+		// Submit to graphics queue
 		VkPipelineStageFlags waitStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		VkSubmitInfo submitInfo{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -486,7 +485,8 @@ int main()
 			.signalSemaphoreCount = 1,
 			.pSignalSemaphores = &renderSemaphores[imageIndex],
 		};
-		vkQueueSubmit(queue, 1, &submitInfo, fences[frameIndex]);
+		chk(vkQueueSubmit(queue, 1, &submitInfo, fences[frameIndex]));
+		frameIndex = (frameIndex + 1) % maxFramesInFlight;
 		VkPresentInfoKHR presentInfo{
 			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 			.waitSemaphoreCount = 1,
@@ -496,7 +496,6 @@ int main()
 			.pImageIndices = &imageIndex
 		};
 		chk(vkQueuePresentKHR(queue, &presentInfo));
-		frameIndex = (frameIndex + 1) % maxFramesInFlight;
 		// Event polling
 		sf::Time elapsed = clock.restart();
 		while (const std::optional event = window.pollEvent()) {

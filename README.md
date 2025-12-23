@@ -25,7 +25,7 @@ At the end of this tutorial we'll see multiple textured objects on screen that c
 
 ## License
 
-The contents of this document are licensed under the [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license. Source code listings and files are licensed under the MIT license.
+The contents of this document are licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license. Source code listings and files are licensed under the MIT license.
 
 ## Libraries
 
@@ -893,7 +893,7 @@ The [`VkSubmitInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkS
 
 The semaphore in `pWaitSemaphores` makes sure the submitted command buffer(s) won't start execution before the presentation of the current frame has finished. The pipeline stage in `pWaitDstStageMask` will make that wait happen at the color attachment output stage of the pipeline, so (in theory) the GPU might already start doing work on parts of the pipeline that come before this, e.g. fetching vertices. The signal semaphore in `pSignalSemaphores` on the other hand is a semaphore that's signalled by the GPU once command buffer execution has completed. This combination ensures that no read/write hazards occur that would have the GPU read from or write to resources still in use.
 
-Notice the distinction between using `frameIndex` for the present semaphore and `imageIndex` instead for the render semaphore. This is because `vkQueuePresentKHR` (see below) has no way to signal without a certain extension (not yet available everywhere). To work around this we decouple the two semaphore types and use one present semaphore per swapchain image instead. An in-depth explanation for this can be found in the [Vulkan Guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html),
+Notice the distinction between using `frameIndex` for the present semaphore and `imageIndex` instead for the render semaphore. This is because `vkQueuePresentKHR` (see below) has no way to signal without a certain extension (not yet available everywhere). To work around this we decouple the two semaphore types and use one present semaphore per swapchain image instead. An in-depth explanation for this can be found in the [Vulkan Guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html).
 
 > **Note:** Submissions can have multiple wait and signal semaphores and wait stages. In a more complex application (than ours) which might mix graphics with compute, it's important to keep synchronization scope as narrow as possible to allow for the GPU to overlap work. This is one of the hardest parts to get right in Vulkan and often requires the use of vendor-specific profilers.
 
