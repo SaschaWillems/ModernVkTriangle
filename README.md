@@ -11,7 +11,13 @@ This repository and the accompanying tutorial demonstrate how to write a "modern
 
 Vulkan has been released almost 10 years ago, and a lot has changed. Version 1.0 had to make many concessions to support a broad range of GPUs across desktop and mobile. Some of the initial concepts like render passes turned out to be not so optimal, and have been replaced by alternatives. Not only did the API mature, but so did the ecosystem giving us e.g. new options for writing shaders in languages different than GLSL.
 
-And so for this tutorial we will be using [Vulkan 1.3](https://docs.vulkan.org/refpages/latest/refpages/source/VK_VERSION_1_3.html) as a baseline. This gives us access to (almost all) features that make Vulkan easier to use while still supporting a wide range of GPUs.
+And so for this tutorial we will be using [Vulkan 1.3](https://docs.vulkan.org/refpages/latest/refpages/source/VK_VERSION_1_3.html) as a baseline. This gives us access to several features that make Vulkan easier to use while still supporting a wide range of GPUs. The ones we will be using are:
+
+| Feature | Description |
+| - | - |
+| [Dynamic rendering](https://www.khronos.org/blog/streamlining-render-passes) | Greatly simplifies render pass setup, one of the most criticized Vulkan areas |
+| [Buffer device address](https://docs.vulkan.org/guide/latest/buffer_device_address.html) | Lets us access buffers via pointers instead of going through descriptors |
+| [Synchronization2](https://docs.vulkan.org/guide/latest/extensions/VK_KHR_synchronization2.html) | Improves synchronization handling, one of the hardest areas of Vulkan |
 
 tl;dr: Doing Vulkan in 202X can be very different from doing Vulkan in 2016. That's what I hope to show with this.
 
@@ -171,7 +177,7 @@ const std::vector<const char*> deviceExtensions{ VK_KHR_SWAPCHAIN_EXTENSION_NAME
 
 > **Note:** The Vulkan headers have defines for all extensions (like `VK_KHR_SWAPCHAIN_EXTENSION_NAME`) that you can use instead of writing their name as string. This helps to avoid typos in extension names.
 
-Using Vulkan 1.3 as a baseline already gives us most of the required functionality. But we'll use a few features that need to be explicitly enabled:
+Using Vulkan 1.3 as a baseline, we can use the features mentioned [earlier on](#about) without resorting to extensions. That would require more code, and also checks and fallback paths if an extensions would not be present. So instead we can simply enable the features:
 
 ```cpp
 VkPhysicalDeviceVulkan12Features enabledVk12Features{
@@ -181,15 +187,14 @@ VkPhysicalDeviceVulkan12Features enabledVk12Features{
 const VkPhysicalDeviceVulkan13Features enabledVk13Features{
 	.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
 	.pNext = &enabledVk12Features,
-	.dynamicRendering = true
+	.synchronization2 = true,
+	.dynamicRendering = true,
 };
 const VkPhysicalDeviceFeatures enabledVk10Features{
 	.samplerAnisotropy = VK_TRUE
 };
 ```
-[Dynamic rendering](https://docs.vulkan.org/guide/latest/buffer_device_address.html) greatly simplifies render pass setup, one of the most criticized Vulkan areas. [Buffer device address](https://docs.vulkan.org/guide/latest/buffer_device_address.html) lets us access buffers from shaders via pointers, saving is from having to go through descriptors. The combination of these features makes Vulkan much easier to use.
-
-We also enable [anisotropic filtering](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) for textures images for better filtering.
+Aside from these, we also enable [anisotropic filtering](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceFeatures.html#_members) for textures images for better filtering.
 
 > **Note:** Another Vulkan struct member you're going to see often is `pNext`. This can be used to create a linked list of structures that are passed into a function call. The driver then uses the `sType` member of each structure in that list to identify said structure's type.
 
