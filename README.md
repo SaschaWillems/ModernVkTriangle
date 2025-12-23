@@ -42,7 +42,7 @@ Vulkan is a deliberately explicit API, writing code for it can be very verbose. 
 * [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) - Simplifies dealing with memory allocations. Removes some of the verbosity around memory management.
 * [glm](https://github.com/g-truc/glm) - A mathematics library with support for things like matrices and vectors.
 * [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader) - Single file loader for the obj 3D format.
-* [dds-ktx](https://github.com/septag/dds-ktx) - Portable single header library for loading images from KTX files. This will be used for loading textures. The official alternative would be [KTX-Software](https://github.com/KhronosGroup/KTX-Software), but it's a large dependency.
+* [KTX-Software](https://github.com/KhronosGroup/KTX-Software) - Khronos KTX GPU texture image file loader.
 
 > **Note:** None of these are required to work with Vulkan. They make working with Vulkan easier though and some like VMA and Volk are widely used.
 

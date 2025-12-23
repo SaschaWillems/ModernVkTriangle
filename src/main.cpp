@@ -244,21 +244,15 @@ int main()
 	VkDescriptorPoolCreateInfo descPoolCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .maxSets = 1, .poolSizeCount = 1, .pPoolSizes = poolSizes };
 	chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
 	// Texture image
-	std::ifstream ktxFile("assets/suzanne.ktx", std::ios::binary | std::ios::ate);
-	assert(ktxFile.is_open());
-	size_t ktxSize = ktxFile.tellg();
-	ktxFile.seekg(std::ios::beg);
-	char* ktxData = new char[ktxSize];
-	ktxFile.read(ktxData, ktxSize);
-	ddsktx_texture_info tc = { 0 };
-	ddsktx_parse(&tc, ktxData, ktxSize, nullptr);
+	ktxTexture* ktxTexture{ nullptr };
+	ktxTexture_CreateFromNamedFile("assets/suzanne.ktx", KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &ktxTexture);
 	VmaAllocationCreateInfo uImageAllocCI{ .flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 	VkImageCreateInfo texImgCI{
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
-		.format = VK_FORMAT_R8G8B8A8_SRGB,
-		.extent = {.width = (uint32_t)tc.width, .height = (uint32_t)tc.height, .depth = 1 },
-		.mipLevels = (uint32_t)tc.num_mips,
+		.format = ktxTexture_GetVkFormat(ktxTexture),
+		.extent = {.width = ktxTexture->baseWidth, .height = ktxTexture->baseWidth, .depth = 1 },
+		.mipLevels = 1,
 		.arrayLayers = 1,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -281,23 +275,21 @@ int main()
 		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
 		.anisotropyEnable = VK_TRUE,
 		.maxAnisotropy = 8.0f,
-		.maxLod = (float)texImgCI.mipLevels,
+		.maxLod = 1.0f,
 	};
 	chk(vkCreateSampler(device, &samplerCI, nullptr, &texture.sampler));
 	VkDescriptorImageInfo descTexInfo{ .sampler = texture.sampler, .imageView = texture.view, .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL_KHR };
 	VkWriteDescriptorSet writeDescSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = texture.descriptorSet, .dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &descTexInfo };
 	vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 	// Copy (first mip only)
-	ddsktx_sub_data subData;
-	ddsktx_get_sub(&tc, &subData, ktxData, ktxSize, 0, 0, 0);
 	VkBuffer stagingBuffer{};
 	VmaAllocation stagingAllocation{};
-	VkBufferCreateInfo stgBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = (uint32_t)subData.size_bytes, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
+	VkBufferCreateInfo stgBufferCI{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = (uint32_t)ktxTexture->dataSize, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
 	VmaAllocationCreateInfo stgAllocCI{ .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, .usage = VMA_MEMORY_USAGE_AUTO };
 	chk(vmaCreateBuffer(allocator, &stgBufferCI, &stgAllocCI, &stagingBuffer, &stagingAllocation, nullptr));
 	void* stagingPtr{ nullptr };
 	vmaMapMemory(allocator, stagingAllocation, &stagingPtr);
-	memcpy(stagingPtr, subData.buff, subData.size_bytes);
+	memcpy(stagingPtr, ktxTexture->pData, ktxTexture->dataSize);
 	VkFenceCreateInfo fenceOneTimeCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 	VkFence fenceOneTime{};
 	chk(vkCreateFence(device, &fenceOneTimeCI, nullptr, &fenceOneTime));
@@ -318,7 +310,7 @@ int main()
 	vkCmdPipelineBarrier(cbOneTime, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrierTex0);
 	VkBufferImageCopy copyRegion{
 		.imageSubresource{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .layerCount = 1 },
-		.imageExtent{.width = (uint32_t)tc.width, .height = (uint32_t)tc.height, .depth = 1 },
+		.imageExtent{.width = ktxTexture->baseWidth, .height = ktxTexture->baseHeight, .depth = 1 },
 	};
 	vkCmdCopyBufferToImage(cbOneTime, stagingBuffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 	VkImageMemoryBarrier barrierTex1{
@@ -337,7 +329,7 @@ int main()
 	chk(vkWaitForFences(device, 1, &fenceOneTime, VK_TRUE, UINT64_MAX));
 	vmaUnmapMemory(allocator, stagingAllocation);
 	vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
-	delete[] ktxData;
+	ktxTexture_Destroy(ktxTexture);
 	// Initialize Slang shader compiler
 	slang::createGlobalSession(slangGlobalSession.writeRef());
 	auto slangTargets{ std::to_array<slang::TargetDesc>({ {.format{SLANG_SPIRV}, .profile{slangGlobalSession->findProfile("spirv_1_4")} } }) };
