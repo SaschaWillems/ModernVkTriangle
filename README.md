@@ -449,14 +449,30 @@ memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 vmaUnmapMemory(allocator, vBufferAllocation);
 ```
 
-## Frames in flight
+## CPU and GPU parallelism
 
-Short intro on the whys
+In graphics heavy applications, the CPU is mostly used to feed work to the GPU. When OpenGL was invented, computers had one CPU with a single core. But today, even mobile devices have multiple cores. Vulkan gives us more explicit control over how work is distributed across CPU and GPU.
+
+This lets us have CPU and GPU work in parallel where possible. So while the GPU is still busy, we can already start creating the next "work package" on the CPU. The naive approach would be having the GPU always wait on the CPU (and vice versa), but that would kill any chance of parallelism.
+
+> **Note:** Keeping this in mind will help understand why things like [command buffers](#command-buffers) exist in Vulkan and why we duplicate certain resources.
+
+A prerequisite for that is to multiply resources shared by the CPU and GPU. That way the CPU can start updating resource *n+1* while the GPU is still using resource *n*. That's basically double (or multi) buffering and is often referred to as "frames in flight" in Vulkan.
+
+While in theory we could have many frames in flight, each added frame in flight also adds latency. So usually you have no more than 2 or 3 frames in flight. We define this at the very top of our code:
 
 ```cpp
 constexpr uint32_t maxFramesInFlight{ 2 };
-std::array<UniformBuffers, maxFramesInFlight> uniformBuffers;
 ```
+
+And use it to dimension all resources that are shared by the CPU and GPU:
+
+```cpp
+std::array<UniformBuffers, maxFramesInFlight> uniformBuffers;
+std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
+```
+
+> **Note:** The concept of frames in flight only applies to resource shared by CPU and GPU. Resources that are only used by the GPU don't have to be multiplied. This applies to e.g. images.
 
 ## Uniform buffers
 
@@ -468,7 +484,7 @@ If we were to use older Vulkan versions we now *would* have to deal with descrip
 
 But by using Vulkan 1.3's [Buffer device address](https://docs.vulkan.org/guide/latest/buffer_device_address.html) feature, we can do away with descriptors (for buffers). Instead of having to access them through descriptors, we can access buffers via their address using pointer syntax in the shader. Not only does that make things easier to understand, it also removes some coupling and requires less code.
 
-As mentioned in [Frames in flight](#frames-in-flight) we create one uniform buffer per max. number of frames in flight. That way we can have CPU and GPU work in parallel to some extent (more on that later):
+As mentioned in [the previous chapter](#cpu-and-gpu-parallelism) we create one uniform buffer per max. number of frames in flight. That way we can update one buffer on the CPU while the GPU reads from another one. This makes sure we don't run into any read/write hazards where the CPU starts updating values while the GPU is still reading them:
 
 ```cpp
 for (auto i = 0; i < maxFramesInFlight; i++) {
@@ -534,7 +550,7 @@ for (auto& semaphore : renderSemaphores) {
 }
 ```
 
-There aren't a lot of options for creating these objects. Fences will be created in a signalled state by setting the `VK_FENCE_CREATE_SIGNALED_BIT` flag. Otherwise the first wait for such a fence would run into a timeout. We need one fence per [frame-in-flight](#frames-in-flight) to sync between GPU and CPU. Same for the semaphore used to signal presentation. The no. of semaphores used to signal rendering needs to match that of the swapchain's images. The reason for this is explained later on in [command buffer submission](#submit-command-buffers). 
+There aren't a lot of options for creating these objects. Fences will be created in a signalled state by setting the `VK_FENCE_CREATE_SIGNALED_BIT` flag. Otherwise the first wait for such a fence would run into a timeout. We need one fence per [frame-in-flight](#cpu-and-gpu-parallelism) to sync between GPU and CPU. Same for the semaphore used to signal presentation. The no. of semaphores used to signal rendering needs to match that of the swapchain's images. The reason for this is explained later on in [command buffer submission](#submit-command-buffers). 
 
 > **Note:** For more complex sync setups, [timeline semaphores](https://www.khronos.org/blog/vulkan-timeline-semaphores) can help reduce the verbosity. They add a semaphore type with a counter value that can be increased and waited on and also can be queried by the CPU to replace fences.
 
