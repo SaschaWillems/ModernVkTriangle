@@ -502,13 +502,28 @@ To be able to access the buffer in our shader, we then get it's device address a
 
 ## Sync objects
 
-Very explicit in Vulkan. 
+Another area where Vulkan is very explicit is [synchronization](https://docs.vulkan.org/spec/latest/chapters/synchronization.html). Other APIs like OpenGL did this implicitly for us. We need to make sure that access to GPU resources is properly guarded to avoid any write/read hazards that could happen by e.g. the CPU starting to write to memory still in use by the GPU. This is somewhat similar to doing multithreading on the CPU but more complicated because we need to make this work between the CPU and GPU, both being very different type of processing units, and also on the GPU itself.
 
-No need to deal with in GL (driver cared for you), but Vulkan requires this. One of the hardest part to get right. Doing stuff wrong might work on one GPU but fail on the other. Note on using syncval in Vkconfig. One thing old apis did completely implicitly was GPU/CPU sync. This is explicit in Vulkan. We need to make sure the CPU doesn't start writing to resources still in use by the GPU (read-after-write hazard). As for semaphores, link to guide chapter. Explain two sync objects. Fences for CPU/GPU sync, Semaphores for GPU-only sync. Mention timeline sempahores, not used here due to WSI and sync being pretty eas anyway.
+> **Note:** Getting synchronization right in Vulkan can be very hard. Esp. as wrong/missing sync might not be visible on all GPUs or situations. Sometimes it only shows with low framerates or on mobile devices. The [validation layers](#validation-layers) include a way to check this with the synchronization validation preset. Make sure to enable it from time to time and check for any hazards reported.
+
+We'll be using different means of synchronization during this tutorial:
+
+[Fences](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-fences) are used to signal work completion from GPU to CPU. We use them when we need to make sure that a resource used by both GPU and CPU is free to be modified on the CPU.
+
+[Semaphores](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-semaphores) are used to control access to resources on the GPU-side (only). We use them to ensure proper ordering for things like presentation.
+
+[Pipeline barriers](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-pipeline-barriers) are used to control resource access within a GPU queue. We use them for access and layout transitions of images.
+
+Fences and semaphores are objects that we have to create and store, barriers will be discussed later:
 
 ```cpp
-VkSemaphoreCreateInfo semaphoreCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
+VkSemaphoreCreateInfo semaphoreCI{
+	.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+};
+VkFenceCreateInfo fenceCI{
+	.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	.flags = VK_FENCE_CREATE_SIGNALED_BIT
+};
 for (auto i = 0; i < maxFramesInFlight; i++) {
 	chk(vkCreateFence(device, &fenceCI, nullptr, &fences[i]));
 	chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &presentSemaphores[i]));
@@ -518,6 +533,10 @@ for (auto& semaphore : renderSemaphores) {
 	chk(vkCreateSemaphore(device, &semaphoreCI, nullptr, &semaphore));
 }
 ```
+
+There aren't a lot of options for creating these objects. Fences will be created in a signalled state by setting the `VK_FENCE_CREATE_SIGNALED_BIT` flag. Otherwise the first wait for such a fence would run into a timeout. We need one fence per [frame-in-flight](#frames-in-flight) to sync between GPU and CPU. Same for the semaphore used to signal presentation. The no. of semaphores used to signal rendering needs to match that of the swapchain's images. The reason for this is explained later on in [command buffer submission](#submit-command-buffers). 
+
+> **Note:** For more complex sync setups, [timeline semaphores](https://www.khronos.org/blog/vulkan-timeline-semaphores) can help reduce the verbosity. They add a semaphore type with a counter value that can be increased and waited on and also can be queried by the CPU to replace fences.
 
 ## Command buffers
 
