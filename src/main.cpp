@@ -273,7 +273,7 @@ int main()
 	VkCommandBuffer cbOneTime{};
 	VkCommandBufferAllocateInfo cbOneTimeAI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = 1 };
 	chk(vkAllocateCommandBuffers(device, &cbOneTimeAI, &cbOneTime));
-	VkCommandBufferBeginInfo cbOneTimeBI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, };
+	VkCommandBufferBeginInfo cbOneTimeBI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
 	vkBeginCommandBuffer(cbOneTime, &cbOneTimeBI);
 	VkImageMemoryBarrier2 barrierTexImage{
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -310,6 +310,7 @@ int main()
 	VkSubmitInfo oneTimeSI{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cbOneTime };
 	chk(vkQueueSubmit(queue, 1, &oneTimeSI, fenceOneTime));
 	chk(vkWaitForFences(device, 1, &fenceOneTime, VK_TRUE, UINT64_MAX));
+	vkDestroyFence(device, fenceOneTime, nullptr);
 	vmaUnmapMemory(allocator, imgSrcAllocation);
 	vmaDestroyBuffer(allocator, imgSrcBuffer, imgSrcAllocation);
 	ktxTexture_Destroy(ktxTexture);
@@ -400,8 +401,8 @@ int main()
 	sf::Clock clock;
 	while (window.isOpen()) {
 		// Sync
-		vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX);
-		vkResetFences(device, 1, &fences[frameIndex]);
+		chk(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
+		chk(vkResetFences(device, 1, &fences[frameIndex]));
 		vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
 		// Update uniform data
 		glm::quat rotQ = glm::quat(camRotation);
