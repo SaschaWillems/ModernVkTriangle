@@ -1140,11 +1140,14 @@ memcpy(uniformBuffers[frameIndex].mapped, &mvp, sizeof(UniformData));
 
 This works because the [uniform buffers](#uniform-buffers) are stored in a memory type accessible by both the CPU (for writing) and the GPU (for reading). With the preceding fence synchronization we also made sure that the CPU won't start writing to that uniform buffer before the GPU has finished reading from it.
 
-### Build command buffers
+### Record command buffers
 
-Tell why we recreate CBs (it's cheap and simplifies things)
+Now we can finally start recoding actual GPU work to get something displayed to the screen. A lot of the things we need for that have been discussed earlier on, so this will easy to follow. As mentioned in [command buffers](#command-buffers), commands are not directly issued to the GPU in Vulkan but rather recorded to command buffers. That's exactly what we are not going to do, record the commands for a single render frame.
 
-Reference dynamic rendering, explicit barriers, bind stuff, issue draw commands
+You might be tempted to pre-record command buffers and reuse them until something changes that would require re-recording. This makes things unnecessary complicated though, as recording command buffers is pretty fast and can be done in parallel on the CPU.
+
+> **Note:** Commands that are recorded into a command buffer start with `vkCmd`. They are not directly executed, but only when the command buffer is submitted to a queue (GPU timeline). A common mistake for beginners is to mix those commands with commands that are instantly executed on the CPU timeline. It's important to remember that these two different timelines exist.
+
 
 ### Submit command buffers
 
