@@ -572,6 +572,10 @@ int main()
 		vkDestroyImageView(device, swapchainImageViews[i], nullptr);
 	}
 	vmaDestroyBuffer(allocator, vBuffer, vBufferAllocation);
+	vkDestroyImageView(device, texture.view, nullptr);
+	vkDestroySampler(device, texture.sampler, nullptr);
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
+	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 	vmaDestroyImage(allocator, texture.image, texture.allocation);
 	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 	vkDestroyPipeline(device, pipeline, nullptr);
