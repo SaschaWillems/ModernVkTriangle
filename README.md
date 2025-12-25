@@ -526,7 +526,7 @@ We'll be using different means of synchronization during this tutorial:
 
 * [Fences](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-fences) are used to signal work completion from GPU to CPU. We use them when we need to make sure that a resource used by both GPU and CPU is free to be modified on the CPU.
 * [Semaphores](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-semaphores) are used to control access to resources on the GPU-side (only). We use them to ensure proper ordering for things like presentation.
-* [Pipeline barriers](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-pipeline-barriers) are used to control resource access within a GPU queue. We use them for access and layout transitions of images.
+* [Pipeline barriers](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-pipeline-barriers) are used to control resource access within a GPU queue. We use them for layout transitions of images.
 
 Fences and semaphores are objects that we have to create and store, barriers will be discussed later:
 
@@ -721,6 +721,99 @@ It might look a bit overwhelming at first but it's easily explained. Earlier on 
 
 > **Note:** Extensions that would make this easier are [VK_EXT_host_image_copy](https://www.khronos.org/blog/copying-images-on-the-host-in-vulkan), allowing for copying image date directly from the CPU without having to use a command buffer and [VK_KHR_unified_image_layouts](https://www.khronos.org/blog/so-long-image-layouts-simplifying-vulkan-synchronisation), simplifying image layouts. These aren't widely supported yet, but future candidates for making Vulkan easier to use.
 
+Later on we'll sample this texture in our shader. How that texture is sampled (in the shader) is defined by a sampler object that:
+
+```cpp
+VkSamplerCreateInfo samplerCI{
+	.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+	.magFilter = VK_FILTER_LINEAR,
+	.minFilter = VK_FILTER_LINEAR,
+	.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+	.anisotropyEnable = VK_TRUE,
+	.maxAnisotropy = 8.0f,
+	.maxLod = 1.0f,
+};
+chk(vkCreateSampler(device, &samplerCI, nullptr, &texture.sampler));
+```
+
+We want smooth linear filtering and also enable [anisotropic filter](https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-texel-anisotropic-filtering) to reduce blur and aliasing.
+
+Now that we have uploaded the texture image's content, have put it into the correct layout and know how to sample it, we need a way for the GPU to access it via a shader. From the GPU's point of view, images are more complicated than buffer and the GPU needs a lot more information on how they're accessed. This is where descriptors are required, handles that represent (describe, hence the name) shader resources. 
+
+In earlier Vulkan versions we would also have to use them for buffers, but as noted in the [uniform buffers](#uniform-buffers) chapter, buffer device address saves us from doing that. But there's no easy to use or widely available equivalent to that for images yet.
+
+First we define the interface between our application and the shader in the form of a descriptor set layout:
+
+```cpp
+VkDescriptorSetLayoutBinding descLayoutBindingTex{
+	.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+};
+VkDescriptorSetLayoutCreateInfo descLayoutTexCI{
+	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+	.bindingCount = 1,
+	.pBindings = &descLayoutBindingTex
+};
+chk(vkCreateDescriptorSetLayout(device, &descLayoutTexCI, nullptr, &descriptorSetLayoutTex));
+```
+
+We want to combine our texture image with a sampler (see below), so we'll define a single descriptor binding for a [`VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER`](VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) that's accessible by the fragment shader (`stageFlags`). A call to [vkCreateDescriptorSetLayout](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateDescriptorSetLayout.html). This layout will be used to allocate the descriptor and specify the shader interface at [pipeline creation](#graphics-pipeline).
+
+> **Note:** There might be scenarios where you would want to separate images and descriptors, e.g. if you have a lot of images and don't want to waste memory on having samplers for each or if you want to dynamically use different sampling options. In that case you'd use two pool sizes, one for `VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE `and one for `VK_DESCRIPTOR_TYPE_SAMPLER `.
+
+Similar to command buffers, descriptors are allocated from a descriptor pool:
+
+```cpp
+VkDescriptorPoolSize poolSize{
+	.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	.descriptorCount = 1
+};
+VkDescriptorPoolCreateInfo descPoolCI{
+	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+	.maxSets = 1,
+	.poolSizeCount = 1,
+	.pPoolSizes = &poolSize
+};
+chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
+```
+
+The number of descriptor types we want to allocate must be specified here upfront. We use a single texture combined with a sampler (`descriptorCount`), so we request exactly one descriptor of type [`VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER`](VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER). We also have to specify how many descriptor sets we want to allocate via `maxSets`. That's also one, because we only have a single image and since it's only accessed by the GPU, there is no need to duplicate it per max. frames in flight. If you'd try to allocate more than one descriptor set or more than one combined image sampler descriptor, that allocation would fail.
+
+Next we allocate the descriptor set from that pool. While the descriptor set layout defines the interface, the descriptor contains the actual descriptor data. The reason that layouts and sets are split is because you can mix layouts and re-use them for different descriptors sets. So if you wanted to load multiple textures you'd use the same descriptor set layout and generate multiple sets. As we only have one image, we create a single descriptor set for that, based on the layout:
+
+```cpp
+VkDescriptorSetAllocateInfo texDescSetAlloc{
+	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+	.descriptorPool = descriptorPool,
+	.descriptorSetCount = 1,
+	.pSetLayouts = &descriptorSetLayoutTex
+};
+chk(vkAllocateDescriptorSets(device, &texDescSetAlloc, &texture.descriptorSet));
+```
+
+That descriptor set is empty and does not know about the actual descriptors yet, so next we populate it with that information:
+
+```cpp
+VkDescriptorImageInfo descTexInfo{
+	.sampler = texture.sampler,
+	.imageView = texture.view,
+	.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL
+};
+VkWriteDescriptorSet writeDescSet{
+	.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	.dstSet = texture.descriptorSet,
+	.dstBinding = 0,
+	.descriptorCount = 1,
+	.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	.pImageInfo = &descTexInfo
+};
+vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+```
+
+The [VkDescriptorImageInfo](https://docs.vulkan.org/refpages/latest/refpages/source/VkDescriptorImageInfo.html) structure is used to link the descriptor to our texture image and the sampler (combined image sampler). Calling [vkUpdateDescriptorSets](https://docs.vulkan.org/refpages/latest/refpages/source/vkUpdateDescriptorSets.html) will put that information in the first (and in our case only) binding slot of the descriptor set.
+
+> **Note:** When using many images, this can become quite cumbersome. On way to simplify this is by using [Descriptor indexing](https://docs.vulkan.org/samples/latest/samples/extensions/descriptor_indexing/README.html), where you'd create a single descriptor for a large array storing an arbitrary number of images.
 
 ## Shaders
 
