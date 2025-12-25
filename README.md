@@ -586,27 +586,6 @@ chk(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
 
 A call to [vkAllocateCommandBuffers](https://docs.vulkan.org/refpages/latest/refpages/source/vkAllocateCommandBuffers.html) will allocate `commandBufferCount` command buffers from our just created pool.
 
-## Descriptors
-
-@todo: move into textures chapter
-
-Short explanation of what they are, why the are needed and that for more complex setups descriptor indexing makes life easier. For buffers we use bda anyway.
-
-```cpp
-VkDescriptorPoolSize poolSizes[1]{ 
-	{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 }
-};
-VkDescriptorPoolCreateInfo descPoolCI{
-	.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-	.maxSets = 1,
-	.poolSizeCount = 1,
-	.pPoolSizes = poolSizes
-};
-chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
-```
-
-desc set layout = defines interface between application and shader
-
 ## Loading textures
 
 We are now going to load the texture that'll be applied to our 3D model. In Vulkan, those are images, just like the swapchain or depth image. From a GPU's perspective, images are more complex than buffers, something that's reflected in the verbosity around getting them uploaded to the GPU. 
@@ -675,7 +654,72 @@ vmaMapMemory(allocator, imgSrcAllocation, &imgSrcBufferPtr);
 memcpy(imgSrcBufferPtr, ktxTexture->pData, ktxTexture->dataSize);
 ```
 
-Next we need to copy the image data from that buffer to the optimal tiled image on the GPU. Without an extension like [VK_EXT_host_image_copy](https://www.khronos.org/blog/copying-images-on-the-host-in-vulkan) that's not possible on the CPU, and has to be done on the GPU. That requires us to use command buffers. 
+Next we need to copy the image data from that buffer to the optimal tiled image on the GPU. For that we first create a single command buffer to record the image related commands to and a fence that's used to wait for the command buffer to finish execution:
+
+```cpp
+VkFenceCreateInfo fenceOneTimeCI{
+	.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
+};
+VkFence fenceOneTime{};
+chk(vkCreateFence(device, &fenceOneTimeCI, nullptr, &fenceOneTime));
+VkCommandBuffer cbOneTime{};
+VkCommandBufferAllocateInfo cbOneTimeAI{
+	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+	.commandPool = commandPool,
+	.commandBufferCount = 1
+};
+chk(vkAllocateCommandBuffers(device, &cbOneTimeAI, &cbOneTime));
+```
+
+Next we record the actual command buffer to get the image data to it's destination in the right shape to be used in our [shader](#the-shader). We'll get into the detail on recording command buffers [later on](#record-command-buffers):
+
+```cpp
+VkCommandBufferBeginInfo cbOneTimeBI{
+	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+};
+vkBeginCommandBuffer(cbOneTime, &cbOneTimeBI);
+VkImageMemoryBarrier2 barrierTexImage{
+	.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+	.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	.srcAccessMask = 0,
+	.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR,
+	.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+	.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	.image = texture.image,
+	.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
+};
+VkDependencyInfo barrierTexInfo{
+	.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+	.imageMemoryBarrierCount = 1,
+	.pImageMemoryBarriers = &barrierTexImage
+};
+vkCmdPipelineBarrier2(cbOneTime, &barrierTexInfo);
+VkBufferImageCopy copyRegion{
+	.imageSubresource{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .layerCount = 1 },
+	.imageExtent{.width = ktxTexture->baseWidth, .height = ktxTexture->baseHeight, .depth = 1 },
+};
+vkCmdCopyBufferToImage(cbOneTime, imgSrcBuffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+VkImageMemoryBarrier2 barrierTexRead{
+	.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+	.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+	.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+	.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+	.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	.image = texture.image,
+	.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
+};
+barrierTexInfo.pImageMemoryBarriers = &barrierTexRead;
+vkCmdPipelineBarrier2(cbOneTime, &barrierTexInfo);
+vkEndCommandBuffer(cbOneTime);
+```
+
+It might look a bit overwhelming at first but it's easily explained. Earlier on we learned about optimal tiled images, where texels are stored in a hardware-specific layout for optimal access by the GPU. That [layout](https://docs.vulkan.org/spec/latest/chapters/resources.html#resources-image-layouts) also defines what operations are possible with an image. That's why we need to change said layout depending on what we want to do next with our image. That's done via a pipeline barrier issued by [vkCmdPipelineBarrier2](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdPipelineBarrier2.html). The first one transitions the texture image from the initial undefined layout to a layout that allows us to transfer data to it (`VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL`), we then copy over the data from our temporary buffer to the image using [vkCmdCopyBufferToImage](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdCopyBufferToImage.html) and then transition the image back from transfer destination to a layout we can read from in our shader (`VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL`).
+
+> **Note:** Extensions that would make this easier are [VK_EXT_host_image_copy](https://www.khronos.org/blog/copying-images-on-the-host-in-vulkan), allowing for copying image date directly from the CPU without having to use a command buffer and [VK_KHR_unified_image_layouts](https://www.khronos.org/blog/so-long-image-layouts-simplifying-vulkan-synchronisation), simplifying image layouts. These aren't widely supported yet, but future candidates for making Vulkan easier to use.
 
 
 ## Shaders
