@@ -1142,11 +1142,32 @@ This works because the [uniform buffers](#uniform-buffers) are stored in a memor
 
 ### Record command buffers
 
-Now we can finally start recoding actual GPU work to get something displayed to the screen. A lot of the things we need for that have been discussed earlier on, so this will easy to follow. As mentioned in [command buffers](#command-buffers), commands are not directly issued to the GPU in Vulkan but rather recorded to command buffers. That's exactly what we are not going to do, record the commands for a single render frame.
+Now we can finally start recoding actual GPU work to get something displayed to the screen. A lot of the things we need for that have been discussed earlier on, so even though this will be a lot of code, it should be easy to follow. As mentioned in [command buffers](#command-buffers), commands are not directly issued to the GPU in Vulkan but rather recorded to command buffers. That's exactly what we are not going to do, record the commands for a single render frame.
 
 You might be tempted to pre-record command buffers and reuse them until something changes that would require re-recording. This makes things unnecessary complicated though, as recording command buffers is pretty fast and can be done in parallel on the CPU.
 
 > **Note:** Commands that are recorded into a command buffer start with `vkCmd`. They are not directly executed, but only when the command buffer is submitted to a queue (GPU timeline). A common mistake for beginners is to mix those commands with commands that are instantly executed on the CPU timeline. It's important to remember that these two different timelines exist.
+
+Command buffers have a [lifecycle](https://docs.vulkan.org/spec/latest/chapters/cmdbuffers.html#commandbuffers-lifecycle) that we have to adhere to. For example we can't record commands to it wile it's in the executable. This is also checked by [validation layers](#validation-layers) that would let us know if we misused things.
+
+First we need to move the command buffer into the initial state. That's done by resetting the [command buffer](https://docs.vulkan.org/refpages/latest/refpages/source/vkResetCommandBuffer.html) and is safe to do as we have waited on the fence earlier on to make sure it's no longer in the pending state:
+
+```cpp
+auto cb = commandBuffers[frameIndex];
+vkResetCommandBuffer(cb, 0);
+```
+
+Once reset, we can start recording the command buffer:
+
+```cpp
+VkCommandBufferBeginInfo cbBI {
+	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+};
+vkBeginCommandBuffer(cb, &cbBI);
+```
+
+The [`VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkCommandBufferUsageFlagBits.html) flag affects how lifecycle moves to invalid state after execution and can be used as an optimization hint by drivers. After calling [vkBeginCommandBuffer](https://docs.vulkan.org/refpages/latest/refpages/source/vkBeginCommandBuffer.html), which moves the command buffer into recording state, we can start recording the actual commands.
 
 
 ### Submit command buffers
