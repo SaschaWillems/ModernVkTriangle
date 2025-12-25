@@ -592,7 +592,7 @@ We are now going to load the texture that'll be applied to our 3D model. In Vulk
 
 > **Note:** Some extensions like [VK_EXT_host_image_copy](https://www.khronos.org/blog/copying-images-on-the-host-in-vulkan) or [VK_EXT_descriptor_buffer](https://www.khronos.org/blog/vk-ext-descriptor-buffer) are attempts at simplifying this part of the API. But none of these are part of a core version or widely supported. If VK_EXT_host_image_copy is available on your targets, you could use it to heavily simplify the upload part, as with it that part no longer requires a command buffer.
 
-There are lots of image formats, but we'll go with [KTX](https://www.khronos.org/ktx/), a container format by Khronos. Unlike formats such as JPEG or PNG, it stores images in native GPU formats, meaning we can directly upload them without having to decompress or convert. It also supports GPU specific fetures like mip maps, 3D textures and cubemaps. One tool for creating KTX image files is [PVRTexTool](https://developer.imaginationtech.com/solutions/pvrtextool/).
+There are lots of image formats, but we'll go with [KTX](https://www.khronos.org/ktx/), a container format by Khronos. Unlike formats such as JPEG or PNG, it stores images in native GPU formats, meaning we can directly upload them without having to decompress or convert. It also supports GPU specific features like mip maps, 3D textures and cubemaps. One tool for creating KTX image files is [PVRTexTool](https://developer.imaginationtech.com/solutions/pvrtextool/).
 
 With the help of that library, Loading such a file from disk is trivial:
 
@@ -1082,18 +1082,12 @@ This brings us to the render loop, in which we'll take user-input, render our sc
 ```cpp
 sf::Clock clock;
 while (window.isOpen()) {
-	// Synchronization
-	// Update uniform data
+	// Wait on fence
+	// Acquire next image
+	// Update shader data
 	// Build command buffer
 	// Submit to graphics queue
 	// Event polling
-	sf::Time elapsed = clock.restart();
-	while (const std::optional event = window.pollEvent()) {		
-		if (event->is<sf::Event::Closed>()) {
-			window.close();
-		}		
-		...
-	}
 }
 ```
 
@@ -1101,13 +1095,35 @@ The loop will be executed as long as the window stays open. SFML also gives us a
 
 There's a lot happening inside the loop, so we'll look at each part separately.
 
-### Sync
+### Wait on fence
 
-Make sure we don't record a certain command buffer on the CPU until execution of it has finished on the GPU. That's what fences can be used for.
+As discussed in [CPU and GPU parallelism](#cpu-and-gpu-parallelism), one area where we can overlap CPU and GPU work is command buffer recording. We want to have the CPU start recording the next command buffer while the GPU is still working on the previous one.
+
+To do that, we wait for fence of the last frame the GPU has worked on to finish execution:
+
+```cpp
+chk(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
+chk(vkResetFences(device, 1, &fences[frameIndex]));
+```
+
+The call to [vkWaitForFences](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForFences.html) will wait CPU side until the GPU has signalled it has finished all work submitted with that fence. The timeout value of `UINT64_MAX` might sound like much, but that's in nanoseconds, so actually quite a small period. As the fence is still in signaled state, we also need to [reset](https://docs.vulkan.org/refpages/latest/refpages/source/vkResetFences.html) for the next submission.
+
+
+# Acquire next image
+
+Unlike (command) buffers, we don't have direct control over the [swapchain images](#swapchain). Instead we need to "ask" the swapchain for the next index to be used in this frame:
+
+```cpp
+vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
+```
+
+It's important to use the `image index` returned by [vkAcquireNextImageKHR](https://docs.vulkan.org/refpages/latest/refpages/source/vkAcquireNextImageKHR.html) to access the swapchain images. There is no guarantee that images are acquired in consecutive order. That's one of the reasons whe have two indices.
+
+We also pass a [semaphore](#synchronization-objects) to this function which will be used later on at command buffer submission.
 
 ### Update shader data
 
-We want the next frame to use up-to-date user inputs. For that we calculate a model view projection matrix from the current camera rotation and position using glm:
+We want the next frame to use up-to-date user inputs. This is safe to do now For that we calculate a model view projection matrix from the current camera rotation and position using glm:
 
 ```cpp
 glm::quat rotQ = glm::quat(camRotation);
