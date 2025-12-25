@@ -516,7 +516,7 @@ Creating uniform buffers is similar to creating the vertex/index buffers for our
 
 To be able to access the buffer in our shader, we then get it's device address and store it for later access.
 
-## Sync objects
+## Synchronization objects
 
 Another area where Vulkan is very explicit is [synchronization](https://docs.vulkan.org/spec/latest/chapters/synchronization.html). Other APIs like OpenGL did this implicitly for us. We need to make sure that access to GPU resources is properly guarded to avoid any write/read hazards that could happen by e.g. the CPU starting to write to memory still in use by the GPU. This is somewhat similar to doing multithreading on the CPU but more complicated because we need to make this work between the CPU and GPU, both being very different type of processing units, and also on the GPU itself.
 
@@ -554,7 +554,11 @@ There aren't a lot of options for creating these objects. Fences will be created
 
 ## Command buffers
 
-First used to submit copy for image, so need to explained before that. Work in VK isn't directly issued but rather recordeed into command buffers. CBs are then submitted to a queue. That way you can create CBs in multiple threads or submit to different queues.
+Unlike older APIs like OpenGL, you can't arbitrarily issue commands to the GPU in Vulkan. Instead we have to record these into [command buffers](https://docs.vulkan.org/spec/latest/chapters/cmdbuffers.html) and then submit them to a [queue](#queues).
+
+While this makes things a bit more complicated from the application's point-of-view it helps the driver to optimize things and also enables applications to record command buffers on separate threads. That's another spot where Vulkan allows us to better utilize CPU and GPU resources.
+
+Command buffers have to be allocated from a [command pool](https://docs.vulkan.org/refpages/latest/refpages/source/VkCommandPool.html), an object that helps the driver optimize allocations:
 
 ```cpp
 VkCommandPoolCreateInfo commandPoolCI{
@@ -563,9 +567,24 @@ VkCommandPoolCreateInfo commandPoolCI{
 	.queueFamilyIndex = queueFamily
 };
 chk(vkCreateCommandPool(device, &commandPoolCI, nullptr, &commandPool));
-VkCommandBufferAllocateInfo cbAllocCI{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = commandPool, .commandBufferCount = maxFramesInFlight };
+```
+
+The [`VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkCommandPoolCreateFlagBits.html) flag lets us implicitly reset command buffers when [recording them](#record-command-buffers). We also have to specify the queue family that the command buffers allocated from this pool will be submitted too.
+
+> **Note:** It's not uncommon to have multiple command pools in a more complex application. They're cheap to create and if you want to record command buffers from multiple threads you require one such pool per thread.
+
+Command buffers will be recorded on the CPU and executed on the GPU, so we create one per max. [frames in flight](#cpu-and-gpu-parallelism):
+
+```cpp
+VkCommandBufferAllocateInfo cbAllocCI{
+	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+	.commandPool = commandPool,
+	.commandBufferCount = maxFramesInFlight
+};
 chk(vkAllocateCommandBuffers(device, &cbAllocCI, commandBuffers.data()));
 ```
+
+A call to [vkAllocateCommandBuffers](https://docs.vulkan.org/refpages/latest/refpages/source/vkAllocateCommandBuffers.html) will allocate `commandBufferCount` command buffers from our just created pool.
 
 ## Descriptors
 
