@@ -27,7 +27,7 @@ The tutorial is focused on writing actual Vulkan code and getting things up and 
 
 ## Goal
 
-At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file (`main.src`) with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
+At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file (`main.cpp`) with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
 
 ## License
 
@@ -295,9 +295,9 @@ chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
 
 We're using the 4 component color format `VK_FORMAT_B8G8R8A8_SRGB` with a non-linear sRGB [color space](https://docs.vulkan.org/refpages/latest/refpages/source/VkColorSpaceKHR.html) `VK_COLORSPACE_SRGB_NONLINEAR_KHR`. This combination is guaranteed to be available everywhere. Different combinations would require checking for support. `minImageCount` will be the minimum no. of images w get from the swapchain. This value varies between GPUs, hence why we use the information we earlier requested from the surface. `presentMode` defines the way in which images are presented to the screen. [`VK_PRESENT_MODE_FIFO_KHR`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPresentModeKHR.html#) is a v-synced mode and the only mode guaranteed to be available everywhere.
 
-> **Note:** The swapchain setup shown here is a bare minimum. In a real-world application this part can be quite complicated, as you might have to adjust this based on user settings. One example would be HDR capable devices, where you'd need to use a different image format and color space.
+> **Note:** The swapchain setup shown here is a bare minimum. In a real-world application this part can be quite complicated, as you might have to adjust it based on user settings. One example would be HDR capable devices, where you'd need to use a different image format and color space.
 
-Something special about the swapchain is that it's images are not owned by the application, but rather by the swapchain. So instead of explicitly creating these on our own, we request them from the swapchain. This will give as at least as many images are set by `minImageCount`:
+Something special about the swapchain is that its images are not owned by the application, but rather by the swapchain. So instead of explicitly creating these on our own, we request them from the swapchain. This will give us at least as many images as set by `minImageCount`:
 
 ```cpp
 uint32_t imageCount{ 0 };
@@ -328,9 +328,9 @@ VkImageCreateInfo depthImageCI{
 	.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 };
 ```	
-> **Note:** We use a fixed depth format (`VK_FORMAT_D24_UNORM_S8_UINT`). This is a [mandatory format](https://docs.vulkan.org/spec/latest/chapters/formats.html#features-required-format-support) meaning it's supported in every Vulkan implementation.
+> **Note:** We use a fixed depth format (`VK_FORMAT_D24_UNORM_S8_UINT`). This is a [mandatory format](https://docs.vulkan.org/spec/latest/chapters/formats.html#features-required-format-support), meaning it's supported in every Vulkan implementation.
 
-The image is 2D and uses a format with support for depth. We don't need multiple mip levels or Layers. Using optimal tiling with [`VK_IMAGE_TILING_OPTIMAL`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html) makes sure the image is stored in a format best suited for the GPU. We also need to state our desired usage cases for the image, which is [`VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageUsageFlagBits.html) as we'll use it as the depth attachment for our render output (more on that later). The initial layout defines the image's content, which we don't have to care about, so we set that to[`VK_IMAGE_LAYOUT_UNDEFINED`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageLayout.html).
+The image is 2D and uses a format with support for depth. We don't need multiple mip levels or Layers. Using optimal tiling with [`VK_IMAGE_TILING_OPTIMAL`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html) makes sure the image is stored in a format best suited for the GPU. We also need to state our desired usage cases for the image, which is [`VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageUsageFlagBits.html) as we'll use it as the depth attachment for our render output (more on that later). The initial layout defines the image's content, which we don't have to care about, so we set that to [`VK_IMAGE_LAYOUT_UNDEFINED`](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageLayout.html).
 
 This is also the first time we'll use VMA to allocate something in Vulkan. Memory allocation for buffers and images in Vulkan is verbose yet often very similar. With VMA we can do away with a lot of that. VMA also takes care of selecting the correct memory types and usage flags, something that would otherwise require a lot of code to get proper.
 
@@ -390,7 +390,7 @@ chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/mon
 
 After a successful call to `LoadObj`, we can access the vertex data stored in the selected .obj file. `attrib` contains a linear array of the vertex data, `shapes` contains indices into that data. `materials` won't be used, we'll do our own shading. 
 
-> **Note:** The .obj format is a bit dated nd doesn't match modern 3D pipelines in all aspects. One such aspect is indexing of the vertex data. Due to how .obj files are structured we end up with one index per vertex, which limits the effectiveness of indexed rendering. In a real-world application you'd use better formats that work well with indexed rendering.
+> **Note:** The .obj format is a bit dated and doesn't match modern 3D pipelines in all aspects. One such aspect is indexing of the vertex data. Due to how .obj files are structured we end up with one index per vertex, which limits the effectiveness of indexed rendering. In a real-world application you'd use better formats that work well with indexed rendering.
 
 We'll be using interleaved vertex attributes meaning that (in memory) for every vertex three floats for position data are followed by two floats for texture coordinates. For that to work we need to combine the position and texture coordinate data that tinyobj provides us with:
 
@@ -501,9 +501,9 @@ for (auto i = 0; i < maxFramesInFlight; i++) {
 	vmaMapMemory(allocator, uniformBuffers[i].allocation, &uniformBuffers[i].mapped);
 ```
 
-Creating uniform buffers is similar to creating the vertex/index buffers for our mesh. The create info structure states that we want to create uniform buffer (`VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT`) that we access via it's device address (`VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`). The buffer size must (at least) match that of our CPU data structure. We again use VMA to handle the allocation, using the same flags as for the vertex/index buffer to make sure we get a buffer that's both accessible by the GPU and GPU. Once the buffer has been created we map it persistent. Unlike in older APIs, this is perfectly fine in Vulkan and makes it easier to update the buffers later on, as we can just keep a permanent pointer to the buffer (memory).
+Creating uniform buffers is similar to creating the vertex/index buffers for our mesh. The create info structure states that we want to create a uniform buffer (`VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT`) that we access via its device address (`VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT`). The buffer size must (at least) match that of our CPU data structure. We again use VMA to handle the allocation, using the same flags as for the vertex/index buffer to make sure we get a buffer that's accessible by both the CPU and GPU. Once the buffer has been created we map it persistently. Unlike in older APIs, this is perfectly fine in Vulkan and makes it easier to update the buffers later on, as we can just keep a permanent pointer to the buffer (memory).
 
-> **Note:** Unlike larger, static buffers, uniform buffers don't have to be stored in the GPU's VRAM. While we still ask VMA for such a memory type, falling back to CPU side memory wouldn't be an issue as uniform data is comparably small.
+> **Note:** Unlike larger, static buffers, uniform buffers don't have to be stored in the GPU's VRAM. While we still ask VMA for such a memory type, falling back to CPU-side memory wouldn't be an issue as uniform data is comparatively small.
 
 ```cpp
 	VkBufferDeviceAddressInfo uBufferBdaInfo{
@@ -626,7 +626,7 @@ We read the format from the texture using `ktxTexture_GetVkFormat`, width and he
 
 Once again `vmaCreateImage` is used to create the image, with `VMA_MEMORY_USAGE_AUTO` making sure we get the most fitting memory type (GPU VRAM).
 
-With the empty image created it's time to upload data. Unlike with a buffer, we can't simply (mem)copy data to an image. That's because [optimal tiling](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html) stores texels in a hardware-specific layout and we have no way to convert to that. Instead we have to create an intermediate buffer that we copy the data to, and then issue a command to the GPU that copies this buffer to the image doing the conversion in turn.
+With the empty image created it's time to upload data. Unlike with a buffer, we can't simply memcpy data to an image. That's because [optimal tiling](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageTiling.html) stores texels in a hardware-specific layout and we have no way to convert to that. Instead we have to create an intermediate buffer that we copy the data to, and then issue a command to the GPU that copies this buffer to the image, doing the conversion in turn.
 
 Creating that buffer is very much the same as creating the [uniform buffers](#uniform-buffers) with some minor differences:
 
@@ -721,7 +721,7 @@ It might look a bit overwhelming at first but it's easily explained. Earlier on 
 
 > **Note:** Extensions that would make this easier are [VK_EXT_host_image_copy](https://www.khronos.org/blog/copying-images-on-the-host-in-vulkan), allowing for copying image date directly from the CPU without having to use a command buffer and [VK_KHR_unified_image_layouts](https://www.khronos.org/blog/so-long-image-layouts-simplifying-vulkan-synchronisation), simplifying image layouts. These aren't widely supported yet, but future candidates for making Vulkan easier to use.
 
-Later on we'll sample this texture in our shader. How that texture is sampled (in the shader) is defined by a sampler object that:
+Later on we'll sample this texture in our shader. How that texture is sampled (in the shader) is defined by a sampler object:
 
 ```cpp
 VkSamplerCreateInfo samplerCI{
@@ -811,7 +811,7 @@ VkWriteDescriptorSet writeDescSet{
 vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 ```
 
-The [VkDescriptorImageInfo](https://docs.vulkan.org/refpages/latest/refpages/source/VkDescriptorImageInfo.html) structure is used to link the descriptor to our texture image and the sampler (combined image sampler). Calling [vkUpdateDescriptorSets](https://docs.vulkan.org/refpages/latest/refpages/source/vkUpdateDescriptorSets.html) will put that information in the first (and in our case only) binding slot of the descriptor set.
+The [VkDescriptorImageInfo](https://docs.vulkan.org/refpages/latest/refpages/source/VkDescriptorImageInfo.html) structure is used to link the descriptor to our texture image and sampler (combined image sampler). Calling [vkUpdateDescriptorSets](https://docs.vulkan.org/refpages/latest/refpages/source/vkUpdateDescriptorSets.html) will put that information in the first (and in our case only) binding slot of the descriptor set.
 
 > **Note:** When using many images, this can become quite cumbersome. On way to simplify this is by using [Descriptor indexing](https://docs.vulkan.org/samples/latest/samples/extensions/descriptor_indexing/README.html), where you'd create a single descriptor for a large array storing an arbitrary number of images.
 
@@ -914,7 +914,7 @@ Another area where Vulkan strongly differs from OpenGL is state management. Open
 
 Vulkan supports [dedicated pipeline types](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineBindPoint.html) for graphics, compute, raytracing. Setting up one of these depends on that type. We only do graphics (aka [rasterization](https://en.wikipedia.org/wiki/Rasterisation)) so we'll be creating a graphics pipeline.
 
-First we create a pipeline layout. This defines the interface between the pipeline and our shader. Pipeline layouts are separate objects as you can mix and match them for use with other pipelines:
+First we create a pipeline layout. This defines the interface between the pipeline and our shaders. Pipeline layouts are separate objects as you can mix and match them for use with other pipelines:
 
 ```cpp
 VkPushConstantRange pushConstantRange{
@@ -931,11 +931,11 @@ VkPipelineLayoutCreateInfo pipelineLayoutCI{
 chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayout));
 ```
 
-The [`pushConstantRange`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPushConstantRange.html) defines a range of values that we can directly push to the shader without having to go through a buffer. We use these to pass a pointer to the uniform buffer(more on that later). The descriptor set layouts (`pSetLayouts`) define the interface to the shader resources. In our case that's only one layout for passing the texture image descriptors. The call to [`vkCreatePipelineLayout`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineLayoutCreateInfo.html) will create the pipeline layout we can then use for our pipeline.
+The [`pushConstantRange`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPushConstantRange.html) defines a range of values that we can directly push to the shader without having to go through a buffer. We use these to pass a pointer to the uniform buffer (more on that later). The descriptor set layouts (`pSetLayouts`) define the interface to the shader resources. In our case that's only one layout for passing the texture image descriptors. The call to [`vkCreatePipelineLayout`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineLayoutCreateInfo.html) will create the pipeline layout we can then use for our pipeline.
 
 Another part of our interface between the pipeline and the shader is the layout of the vertex data. In the [mesh loading chapter](#loading-meshes) we defined a basic vertex structure that we now need to specify in Vulkan terms. Setting this up in Vulkan is very flexible, but in our case it's pretty simple.
 
-We use a single vertex buffer, so we require one [vertex binding point](https://docs.vulkan.org/refpages/latest/refpages/source/VkVertexInputBindingDescription.html). The `stride` matches the size of our vertex structure as our vertices are stored directly adjacent in memory. The `inputRate` is per-Vertex, meaning that the data pointer advances for ever vertex read:
+We use a single vertex buffer, so we require one [vertex binding point](https://docs.vulkan.org/refpages/latest/refpages/source/VkVertexInputBindingDescription.html). The `stride` matches the size of our vertex structure as our vertices are stored directly adjacent in memory. The `inputRate` is per-vertex, meaning that the data pointer advances for every vertex read:
 
 ```cpp
 VkVertexInputBindingDescription vertexBinding{
@@ -945,7 +945,7 @@ VkVertexInputBindingDescription vertexBinding{
 };
 ```
 
-Next we specify how [vertex attributes](https://docs.vulkan.org/refpages/latest/refpages/source/VkVertexInputAttributeDescription.html) like position and texture coordinates are slaid out in memory. This exactly matches our simple vertex structure:
+Next we specify how [vertex attributes](https://docs.vulkan.org/refpages/latest/refpages/source/VkVertexInputAttributeDescription.html) like position and texture coordinates are laid out in memory. This exactly matches our simple vertex structure:
 
 ```cpp
 std::vector<VkVertexInputAttributeDescription> vertexAttributes{
@@ -969,7 +969,7 @@ VkPipelineVertexInputStateCreateInfo vertexInputState{
 };
 ```
 
-Another structure directly connected to our vertex data is the [input assembly state](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineInputAssemblyStateCreateInfo.html). It defines how [primitives](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineInputAssemblyStateCreateInfo.html) are assembled. We want to render a list of separate triangles, so we use [`VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPrimitiveTopology.html):
+Another structure directly connected to our vertex data is the [input assembly state](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineInputAssemblyStateCreateInfo.html). It defines how [primitives](https://docs.vulkan.org/refpages/latest/refpages/source/VkPrimitiveTopology.html) are assembled. We want to render a list of separate triangles, so we use [`VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPrimitiveTopology.html):
 
 ```cpp
 VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{
@@ -1071,7 +1071,7 @@ VkGraphicsPipelineCreateInfo pipelineCI{
 chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline));
 ```
 
-After a successful call to [`vkCreateGraphicsPipelines`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateGraphicsPipelines.html), our graphics pipeline is read to be used for rendering.
+After a successful call to [`vkCreateGraphicsPipelines`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateGraphicsPipelines.html), our graphics pipeline is ready to be used for rendering.
 
 ## Render loop
 
@@ -1280,13 +1280,13 @@ vkCmdPushConstants(cb, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkD
 
 > **Note:** These `vkCmd*` calls (and many others) set the current command buffer state. That means the persist across multiple draw calls inside the same command buffers. So if you e.g. wanted to issue a second draw call with the same pipeline but a different descriptor sets you'd only have to call `vkCmdBindDescriptorSets` with another set, while keeping the rest of the state.
 
-And with that we are *finally* read to issue an actual draw command. With all the work we did up to this point, that's just a single command:
+And with that we are *finally* ready to issue an actual draw command. With all the work we did up to this point, that's just a single command:
 
 ```cpp
 vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
 ```
 
-This call to [vkCmdDrawIndexed](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdDrawIndexed.html) will darw indexCount / 3 triangles from the currently bound index and vertex buffer We also want to draw multiple istances of our 3D mesh, so we set the instance count (third argument) to 3, which we use in the [vertex shader](#shaders) to calculate different positions.
+This call to [vkCmdDrawIndexed](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdDrawIndexed.html) will draw indexCount / 3 triangles from the currently bound index and vertex buffer. We also want to draw multiple instances of our 3D mesh, so we set the instance count (third argument) to 3, which we use in the [vertex shader](#shaders) to calculate different positions.
 
 We now [finish](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdEndRendering.html) the current render pass:
 
@@ -1318,7 +1318,7 @@ vkCmdPipelineBarrier2(cb, &barrierPresentDependencyInfo);
 
 We don't need a barrier for the depth attachment, as we don't use that outside of this render pass.
 
-At last we [end recording](https://docs.vulkan.org/refpages/latest/refpages/source/vkEndCommandBuffer.html) of the command buffer: 
+At last we [end recording](https://docs.vulkan.org/refpages/latest/refpages/source/vkEndCommandBuffer.html) the command buffer: 
 
 ```cpp
 vkEndCommandBuffer(cb);
@@ -1349,7 +1349,7 @@ The [`VkSubmitInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkS
 
 The semaphore in `pWaitSemaphores` makes sure the submitted command buffer(s) won't start execution before the presentation of the current frame has finished. The pipeline stage in `pWaitDstStageMask` will make that wait happen at the color attachment output stage of the pipeline, so (in theory) the GPU might already start doing work on parts of the pipeline that come before this, e.g. fetching vertices. The signal semaphore in `pSignalSemaphores` on the other hand is a semaphore that's signalled by the GPU once command buffer execution has completed. This combination ensures that no read/write hazards occur that would have the GPU read from or write to resources still in use.
 
-Notice the distinction between using `frameIndex` for the present semaphore and `imageIndex` instead for the render semaphore. This is because `vkQueuePresentKHR` (see below) has no way to signal without a certain extension (not yet available everywhere). To work around this we decouple the two semaphore types and use one present semaphore per swapchain image instead. An in-depth explanation for this can be found in the [Vulkan Guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html).
+Notice the distinction between using `frameIndex` for the present semaphore and `imageIndex` for the render semaphore. This is because `vkQueuePresentKHR` (see below) has no way to signal without a certain extension (not yet available everywhere). To work around this we decouple the two semaphore types and use one present semaphore per swapchain image instead. An in-depth explanation for this can be found in the [Vulkan Guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html).
 
 > **Note:** Submissions can have multiple wait and signal semaphores and wait stages. In a more complex application (than ours) which might mix graphics with compute, it's important to keep synchronization scope as narrow as possible to allow for the GPU to overlap work. This is one of the hardest parts to get right in Vulkan and often requires the use of vendor-specific profilers.
 
