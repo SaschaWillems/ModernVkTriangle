@@ -31,7 +31,7 @@ At the end of this tutorial we'll see multiple textured objects on screen that c
 
 ## License
 
-The contents of this document are licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license. Source code listings and files are licensed under the MIT license.
+Copyright (c) 2025-2026, [Sascha Willems](https://www.saschawillems.de). The contents of this document are licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license. Source code listings and files are licensed under the MIT license.
 
 ## Libraries
 
@@ -1487,4 +1487,3 @@ Ordering of commands only matters for the VMA allocator, device and instance. Th
 
 ## Closing words
 
-Copyright (c) 2025, [Sascha Willems](https://www.saschawillems.de)
