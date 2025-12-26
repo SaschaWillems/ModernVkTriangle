@@ -7,7 +7,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 ## About
 
-This repository and the accompanying tutorial demonstrate how to write a "modern" Vulkan application in 202X. The goal is to use as little code as possible for displaying something that's more than just a basic colored triangle. 
+[This repository](https://github.com/SaschaWillems/HowToVulkan) and the accompanying tutorial demonstrate how to write a "modern" Vulkan application in 202X. The goal is to use as little code as possible for displaying something that's more than just a basic colored triangle. 
 
 Vulkan has been released almost 10 years ago, and a lot has changed. Version 1.0 had to make many concessions to support a broad range of GPUs across desktop and mobile. Some of the initial concepts like render passes turned out to be not so optimal, and have been replaced by alternatives. Not only did the API mature, but so did the ecosystem giving us e.g. new options for writing shaders in languages different than GLSL.
 
@@ -758,7 +758,7 @@ VkDescriptorSetLayoutCreateInfo descLayoutTexCI{
 chk(vkCreateDescriptorSetLayout(device, &descLayoutTexCI, nullptr, &descriptorSetLayoutTex));
 ```
 
-We want to combine our texture image with a sampler (see below), so we'll define a single descriptor binding for a [`VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER`](VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) that's accessible by the fragment shader (`stageFlags`). A call to [vkCreateDescriptorSetLayout](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateDescriptorSetLayout.html). This layout will be used to allocate the descriptor and specify the shader interface at [pipeline creation](#graphics-pipeline).
+We want to combine our texture image with a sampler (see below), so we'll define a single descriptor binding for a [`VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER`](https://docs.vulkan.org/refpages/latest/refpages/source/VkDescriptorType.html) that's accessible by the fragment shader (`stageFlags`). A call to [vkCreateDescriptorSetLayout](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateDescriptorSetLayout.html). This layout will be used to allocate the descriptor and specify the shader interface at [pipeline creation](#graphics-pipeline).
 
 > **Note:** There might be scenarios where you would want to separate images and descriptors, e.g. if you have a lot of images and don't want to waste memory on having samplers for each or if you want to dynamically use different sampling options. In that case you'd use two pool sizes, one for `VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE `and one for `VK_DESCRIPTOR_TYPE_SAMPLER `.
 
@@ -778,7 +778,7 @@ VkDescriptorPoolCreateInfo descPoolCI{
 chk(vkCreateDescriptorPool(device, &descPoolCI, nullptr, &descriptorPool));
 ```
 
-The number of descriptor types we want to allocate must be specified here upfront. We use a single texture combined with a sampler (`descriptorCount`), so we request exactly one descriptor of type [`VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER`](VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER). We also have to specify how many descriptor sets we want to allocate via `maxSets`. That's also one, because we only have a single image and since it's only accessed by the GPU, there is no need to duplicate it per max. frames in flight. If you'd try to allocate more than one descriptor set or more than one combined image sampler descriptor, that allocation would fail.
+The number of descriptor types we want to allocate must be specified here upfront. We use a single texture combined with a sampler (`descriptorCount`), so we request exactly one descriptor of type [`VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER`](https://docs.vulkan.org/refpages/latest/refpages/source/VkDescriptorType.html). We also have to specify how many descriptor sets we want to allocate via `maxSets`. That's also one, because we only have a single image and since it's only accessed by the GPU, there is no need to duplicate it per max. frames in flight. If you'd try to allocate more than one descriptor set or more than one combined image sampler descriptor, that allocation would fail.
 
 Next we allocate the descriptor set from that pool. While the descriptor set layout defines the interface, the descriptor contains the actual descriptor data. The reason that layouts and sets are split is because you can mix layouts and re-use them for different descriptors sets. So if you wanted to load multiple textures you'd use the same descriptor set layout and generate multiple sets. As we only have one image, we create a single descriptor set for that, based on the layout:
 
@@ -969,7 +969,7 @@ VkPipelineVertexInputStateCreateInfo vertexInputState{
 };
 ```
 
-Another structure directly connected to our vertex data is the [input assembly state](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineInputAssemblyStateCreateInfo.html). It defines how [primitives](VkPipelineInputAssemblyStateCreateInfo) are assembled. We want to render a list of separate triangles, so we use [`VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPrimitiveTopology.html):
+Another structure directly connected to our vertex data is the [input assembly state](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineInputAssemblyStateCreateInfo.html). It defines how [primitives](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineInputAssemblyStateCreateInfo.html) are assembled. We want to render a list of separate triangles, so we use [`VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST`](https://docs.vulkan.org/refpages/latest/refpages/source/VkPrimitiveTopology.html):
 
 ```cpp
 VkPipelineInputAssemblyStateCreateInfo inputAssemblyState{
@@ -1345,7 +1345,7 @@ VkSubmitInfo submitInfo{
 chk(vkQueueSubmit(queue, 1, &submitInfo, fences[frameIndex]));
 ```
 
-The [`VkSubmitInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkSubmitInfo.html) structure needs some explanation, esp. in regards to synchronization. Earlier on we learned about the [synchronization primitives](#sync-objects) that we need to properly synchronize work between CPU and GPU and the GPU itself. And this is where it all comes together.
+The [`VkSubmitInfo`](https://docs.vulkan.org/refpages/latest/refpages/source/VkSubmitInfo.html) structure needs some explanation, esp. in regards to synchronization. Earlier on we learned about the [synchronization primitives](#synchronization-objects) that we need to properly synchronize work between CPU and GPU and the GPU itself. And this is where it all comes together.
 
 The semaphore in `pWaitSemaphores` makes sure the submitted command buffer(s) won't start execution before the presentation of the current frame has finished. The pipeline stage in `pWaitDstStageMask` will make that wait happen at the color attachment output stage of the pipeline, so (in theory) the GPU might already start doing work on parts of the pipeline that come before this, e.g. fetching vertices. The signal semaphore in `pSignalSemaphores` on the other hand is a semaphore that's signalled by the GPU once command buffer execution has completed. This combination ensures that no read/write hazards occur that would have the GPU read from or write to resources still in use.
 
@@ -1486,3 +1486,5 @@ vkDestroyInstance(instance, nullptr);
 Ordering of commands only matters for the VMA allocator, device and instance. These should only be destroyed after all objects created from them. The instance should be deleted last, that way we'll be notified by the validation layers (when enabled) of every object we forgot to properly delete. One resource you don't have to explicitly destroy are the command buffers. Calling [vkDestroyCommandPool](https://docs.vulkan.org/refpages/latest/refpages/source/vkDestroyCommandPool.html) will implicitly free all command buffers allocated from that pool.
 
 ## Closing words
+
+Copyright (c) 2025, [Sascha Willems](https://www.saschawillems.de)
