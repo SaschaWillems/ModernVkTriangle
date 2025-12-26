@@ -1169,6 +1169,51 @@ vkBeginCommandBuffer(cb, &cbBI);
 
 The [`VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT`](https://docs.vulkan.org/refpages/latest/refpages/source/VkCommandBufferUsageFlagBits.html) flag affects how lifecycle moves to invalid state after execution and can be used as an optimization hint by drivers. After calling [vkBeginCommandBuffer](https://docs.vulkan.org/refpages/latest/refpages/source/vkBeginCommandBuffer.html), which moves the command buffer into recording state, we can start recording the actual commands.
 
+During rendering, color information will be written to the current [swapchain image](#swapchain), depth information will be written to the [depth image](#depth-attachment). As we learned in [loading textures](#loading-textures), optimal tiled images need to be in the correct layout for their indented use case. As such, the first step is to issue layout transitions for both of them:
+
+```cpp
+std::array<VkImageMemoryBarrier2, 2> outputBarriers{
+	VkImageMemoryBarrier2{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		.srcAccessMask = 0,
+		.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+		.image = swapchainImages[imageIndex],
+		.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
+	},
+	VkImageMemoryBarrier2{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+		.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+		.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+		.image = depthImage,
+		.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, .levelCount = 1, .layerCount = 1 }
+	}
+		};
+VkDependencyInfo barrierDependencyInfo{
+	.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+	.imageMemoryBarrierCount = 2,
+	.pImageMemoryBarriers = outputBarriers.data()
+};
+vkCmdPipelineBarrier2(cb, &barrierDependencyInfo);
+```
+
+Not only do [image memory barriers](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-dependencies) transition layouts, they also make sure that this happens at the right [pipeline stage](https://docs.vulkan.org/spec/latest/chapters/pipelines.html#pipelines-block-diagram), enforcing ordering inside a command buffer. Similar to other synchronization primitives we used, these are necessary to make sure the GPU e.g. doesn't start writing to an image in one pipeline stage while a previous pipeline stage is still reading from it. They also make writes visible to following stages. The `srcStageMask` is the pipeline stage(s) to wait on, `srcAccessMask` and defines writes to be made availble. `dstStageMask` and `dstAccessMask` define where and what writes to be made visible.
+
+> **Note:** Available and visible might sound like the same thing, but they aren't. That's due to how CPU/GPUs work and how they interact with caches. Available means data is ready for future memory operations (e.g. cache flushes). Visible means that data is actually visible to reads from the consuming stages.
+
+The *first barrier* transitions the current swapchain image *to* a [layout](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageLayout.html) (`newLayout`) so that we can use it as a color attachment for rendering. Similarly the *second barrier* transitions the depth image *to* a layout so that we can use it as a depth attachment for rendering. Both transition *from* and undefined layout (`oldLayout`). That's because we don't need the previous content of any of these images.
+
+> **Note:** The `VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL` layout is a core feature of Vulkan 1.3 that combines all types of attachment layouts into a single one. This simplifies image barriers.
+
+A call to [vkCmdPipelineBarrier2](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdPipelineBarrier2.html) will then insert those two barriers into the current command buffer.
+
 
 ### Submit command buffers
 
