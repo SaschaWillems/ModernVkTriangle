@@ -1109,7 +1109,7 @@ chk(vkResetFences(device, 1, &fences[frameIndex]));
 The call to [vkWaitForFences](https://docs.vulkan.org/refpages/latest/refpages/source/vkWaitForFences.html) will wait CPU side until the GPU has signalled it has finished all work submitted with that fence. The timeout value of `UINT64_MAX` might sound like much, but that's in nanoseconds, so actually quite a small period. As the fence is still in signaled state, we also need to [reset](https://docs.vulkan.org/refpages/latest/refpages/source/vkResetFences.html) for the next submission.
 
 
-# Acquire next image
+### Acquire next image
 
 Unlike (command) buffers, we don't have direct control over the [swapchain images](#swapchain). Instead we need to "ask" the swapchain for the next index to be used in this frame:
 
@@ -1172,7 +1172,7 @@ The [`VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT`](https://docs.vulkan.org/refp
 
 ### Submit command buffers
 
-In order to execute the commands we just recorded we need to submit the command buffer to a matching queue. In a real-world application it's not uncommon that have multiple queues of different types and also more complex submission patterns. But we only use graphics commands (no compute or ray tracing) and as such also only have a single graphics queue to which we submit our current frame's command buffer:
+In order to execute the commands we just recorded we need to submit the command buffer to a matching queue. In a real-world application it's not uncommon to have multiple queues of different types and also more complex submission patterns. But we only use graphics commands (no compute or ray tracing) and as such also only have a single graphics queue to which we submit our current frame's command buffer:
 
 ```cpp
 VkPipelineStageFlags waitStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1197,7 +1197,7 @@ Notice the distinction between using `frameIndex` for the present semaphore and 
 
 > **Note:** Submissions can have multiple wait and signal semaphores and wait stages. In a more complex application (than ours) which might mix graphics with compute, it's important to keep synchronization scope as narrow as possible to allow for the GPU to overlap work. This is one of the hardest parts to get right in Vulkan and often requires the use of vendor-specific profilers.
 
-Once work has been submitted, we can calculate the next frame index:
+Once work has been submitted, we can calculate the frame index for the next render loop iteration:
 
 ```cpp
 frameIndex = (frameIndex + 1) % maxFramesInFlight;
@@ -1205,9 +1205,25 @@ frameIndex = (frameIndex + 1) % maxFramesInFlight;
 
 ### Present images
 
+The final step to get our rendering results to the screen is presenting the current swapchain image we used as the color attachment:
+
+```cpp
+VkPresentInfoKHR presentInfo{
+	.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+	.waitSemaphoreCount = 1,
+	.pWaitSemaphores = &renderSemaphores[imageIndex],
+	.swapchainCount = 1,
+	.pSwapchains = &swapchain,
+	.pImageIndices = &imageIndex
+};
+chk(vkQueuePresentKHR(queue, &presentInfo));
+```
+
+Calling [vkQueuePresentKHR](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueuePresentKHR.html) will enqueue the image for presentation after waiting for the render semaphore. That guarantees the image won't be presented until our rendering commands have finished. 
+
 ### Event polling
 
-After all the visual things we now have to work through the event queue (of the operating system). This is done in an additional loop (inside the render loop) where we call `pollEvent` until all events have been popped from the queue. We only handle event types we're interested in:
+After all the visual things we now work through the event queue (of the operating system). This is done in an additional loop (inside the render loop) where we call `pollEvent` until all events have been popped from the queue. We only handle event types we're interested in:
 
 ```cpp
 while (const std::optional event = window.pollEvent()) {
