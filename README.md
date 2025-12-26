@@ -1016,7 +1016,7 @@ VkPipelineDepthStencilStateCreateInfo depthStencilState{
 };
 ```
 
-The following state tells the pipeline that we want to use dynamic rendering instead of the cumbersome render passes. Unlike render passes, setting this up is fairly trivial and also removes a tight coupling between the pipeline and a render pass. For dynamic rendering we just have to specify the number and formats our the attachments we plan to use (later on):
+The following state tells the pipeline that we want to use dynamic rendering instead of the cumbersome render pass objects. Unlike render passes, setting this up is fairly trivial and also removes a tight coupling between the pipeline and a render pass. For dynamic rendering we just have to specify the number and formats our the attachments we plan to use (later on):
 
 ```cpp
 VkPipelineRenderingCreateInfo renderingCI{
@@ -1214,6 +1214,117 @@ The *first barrier* transitions the current swapchain image *to* a [layout](http
 
 A call to [vkCmdPipelineBarrier2](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdPipelineBarrier2.html) will then insert those two barriers into the current command buffer.
 
+With the attachments in the correct layout, it's time to define how we use these attachments. As noted early on, we'll use [Dynamic rendering](https://www.khronos.org/blog/streamlining-render-passes) for that instead of the complicated and cumbersome render pass objects from Vulkan 1.0.
+
+```cpp
+VkRenderingAttachmentInfo colorAttachmentInfo{
+	.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+	.imageView = swapchainImageViews[imageIndex],
+	.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+	.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+	.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+	.clearValue{.color{ 0.0f, 0.0f, 0.2f, 1.0f }}
+};
+VkRenderingAttachmentInfo depthAttachmentInfo{
+	.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+	.imageView = depthImageView,
+	.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+	.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+	.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+	.clearValue = {.depthStencil = {1.0f,  0}}
+};
+```
+
+We set up one [VkRenderingAttachmentInfo](https://docs.vulkan.org/refpages/latest/refpages/source/VkRenderingAttachmentInfo.html) for the swapchain image used as the color attachment and the depth image used as the depth attachment. Both will be cleared to their respective `clearValue` at the start of a render pass with `loadOp` set to `VK_ATTACHMENT_LOAD_OP_CLEAR`. `storeOp` for the color attachment is configured to keep it's contents, as we still need them to be presented to the screen. We don't need the depth information once we're done rendering, so we literall don't care what happens with it's contents after the render pass. Layouts for both must match what we transitioned them earlier on.
+
+Calling [vkCmdBeginRendering](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdBeginRendering.html) will then start our dynamic render pass instance with above attachment configuration:
+
+```cpp
+VkRenderingInfo renderingInfo{
+	.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+	.renderArea{.extent{.width = window.getSize().x, .height = window.getSize().y }},
+	.layerCount = 1,
+	.colorAttachmentCount = 1,
+	.pColorAttachments = &colorAttachmentInfo,
+	.pDepthAttachment = &depthAttachmentInfo
+};
+vkCmdBeginRendering(cb, &renderingInfo);
+```
+
+Inside this render pass instance we can finally start recording GPU commands. Remember that these aren't directly issued to the GPU, this will be done later on.
+
+We start by setting up the [viewport](https://docs.vulkan.org/spec/latest/chapters/vertexpostproc.html#vertexpostproc-viewport) to define our rendering area. We always want this to be the whole window. Same for the [scissor](https://docs.vulkan.org/spec/latest/chapters/fragops.html#fragops-scissor) area. Both are part of the dynamic state we enabled at [pipeline creation](#graphics-pipeline), so we can adjust them inside the command buffer instead of having the recreate the graphics pipeline on each window resize:
+
+```cpp
+VkViewport vp{ .width = static_cast<float>(window.getSize().x), .height = static_cast<float>(window.getSize().y), .minDepth = 0.0f, .maxDepth = 1.0f};
+vkCmdSetViewport(cb, 0, 1, &vp);
+VkRect2D scissor{ .extent{ .width = window.getSize().x, .height = window.getSize().y } };
+vkCmdSetScissor(cb, 0, 1, &scissor);
+```
+
+Next up is binding the resources involved in rendering our 3D object. The [graphics pipeline](#graphics-pipeline), that also includes our vertex and fragment shaders, as well as the descriptor set for the  [texture image](#loading-textures) and the vertex and index buffers of our [3D mesh](#loading-meshes):
+
+```cpp
+vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+VkDeviceSize vOffset{ 0 };
+vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &texture.descriptorSet, 0, nullptr);
+vkCmdBindVertexBuffers(cb, 0, 1, &vBuffer, &vOffset);
+vkCmdBindIndexBuffer(cb, vBuffer, vBufSize, VK_INDEX_TYPE_UINT16);
+```
+
+We also want to access data in the [uniform buffer](#uniform-buffers). We opted for using buffer device address instead of going through descriptors, so instead we pass the address of the current frame's uniform data via a push constant to the shaders:
+
+```cpp
+vkCmdPushConstants(cb, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &uniformBuffers[frameIndex].deviceAddress);
+```
+
+> **Note:** These `vkCmd*` calls (and many others) set the current command buffer state. That means the persist across multiple draw calls inside the same command buffers. So if you e.g. wanted to issue a second draw call with the same pipeline but a different descriptor sets you'd only have to call `vkCmdBindDescriptorSets` with another set, while keeping the rest of the state.
+
+And with that we are *finally* read to issue an actual draw command. With all the work we did up to this point, that's just a single command:
+
+```cpp
+vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
+```
+
+This call to [vkCmdDrawIndexed](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdDrawIndexed.html) will darw indexCount / 3 triangles from the currently bound index and vertex buffer We also want to draw multiple istances of our 3D mesh, so we set the instance count (third argument) to 3, which we use in the [vertex shader](#shaders) to calculate different positions.
+
+We now [finish](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdEndRendering.html) the current render pass:
+
+```cpp
+vkCmdEndRendering(cb);
+```
+
+And transition the swapchain image that we just used to a layout required for [presentation](#present-images):
+
+```cpp
+VkImageMemoryBarrier2 barrierPresent{
+	.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+	.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+	.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	.dstAccessMask = 0,
+	.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+	.image = swapchainImages[imageIndex],
+	.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
+};
+VkDependencyInfo barrierPresentDependencyInfo{
+	.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+	.imageMemoryBarrierCount = 1,
+	.pImageMemoryBarriers = &barrierPresent
+};
+vkCmdPipelineBarrier2(cb, &barrierPresentDependencyInfo);
+```
+
+We don't need a barrier for the depth attachment, as we don't use that outside of this render pass.
+
+At last we [end recording](https://docs.vulkan.org/refpages/latest/refpages/source/vkEndCommandBuffer.html) of the command buffer: 
+
+```cpp
+vkEndCommandBuffer(cb);
+``` 
+
+This moves it to the [executable state](https://docs.vulkan.org/spec/latest/chapters/cmdbuffers.html#commandbuffers-lifecycle). That's a requirement for the next step.
 
 ### Submit command buffers
 

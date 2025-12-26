@@ -454,7 +454,8 @@ int main()
 			.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 			.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.clearValue = {.depthStencil = {1.0f,  0}} };
+			.clearValue = {.depthStencil = {1.0f,  0}}
+		};
 		VkRenderingInfo renderingInfo{
 			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
 			.renderArea{.extent{.width = window.getSize().x, .height = window.getSize().y }},
@@ -467,15 +468,14 @@ int main()
 		VkViewport vp{ .width = static_cast<float>(window.getSize().x), .height = static_cast<float>(window.getSize().y), .minDepth = 0.0f, .maxDepth = 1.0f};
 		vkCmdSetViewport(cb, 0, 1, &vp);
 		VkRect2D scissor{ .extent{ .width = window.getSize().x, .height = window.getSize().y } };
+		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 		vkCmdSetScissor(cb, 0, 1, &scissor);
 		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &texture.descriptorSet, 0, nullptr);
-		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 		VkDeviceSize vOffset{ 0 };
 		vkCmdBindVertexBuffers(cb, 0, 1, &vBuffer, &vOffset);
 		vkCmdBindIndexBuffer(cb, vBuffer, vBufSize, VK_INDEX_TYPE_UINT16);
-		// vkCmdDrawIndexed(cb, indexCount, 1, 0, 0, 0); @todo
 		vkCmdPushConstants(cb, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &uniformBuffers[frameIndex].deviceAddress);
-		vkCmdDrawIndexed(cb, indexCount, 1, 0, 0, 0);
+		vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
 		vkCmdEndRendering(cb);
 		VkImageMemoryBarrier2 barrierPresent{
 			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
