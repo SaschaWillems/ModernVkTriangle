@@ -828,7 +828,7 @@ The [VkDescriptorImageInfo](https://docs.vulkan.org/refpages/latest/refpages/sou
 
 > **Note:** When using many images, this can become quite cumbersome. On way to simplify this is by using [Descriptor indexing](https://docs.vulkan.org/samples/latest/samples/extensions/descriptor_indexing/README.html), where you'd create a single descriptor for a large array storing an arbitrary number of images.
 
-## Shaders
+## Loading shaders
 
 As mentioned earlier we'll be using the Slang shading language. Vulkan can't directly load shaders written in such a language though (or GLSL or HLSL). It expects them in the SPIR-V intermediate format. For that we need to compile from Slang to SPIR-V first. There are two approaches to do that: Compile offline using Slang's command line compiler or compile at runtime using Slang's library.
 
@@ -1288,7 +1288,7 @@ VkRect2D scissor{ .extent{ .width = window.getSize().x, .height = window.getSize
 vkCmdSetScissor(cb, 0, 1, &scissor);
 ```
 
-Next up is binding the resources involved in rendering our 3D object. The [graphics pipeline](#graphics-pipeline), that also includes our vertex and fragment shaders, as well as the descriptor set for the  [texture image](#loading-textures) and the vertex and index buffers of our [3D mesh](#loading-meshes):
+Next up is binding the resources involved in rendering our 3D object. The [graphics pipeline](#graphics-pipeline), that also includes our vertex and fragment shaders, as well as the descriptor set for the [texture image](#loading-textures) and the vertex and index buffers of our [3D mesh](#loading-meshes):
 
 ```cpp
 vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -1312,7 +1312,7 @@ And with that we are *finally* ready to issue an actual draw command. With all t
 vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
 ```
 
-This call to [vkCmdDrawIndexed](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdDrawIndexed.html) will draw indexCount / 3 triangles from the currently bound index and vertex buffer. We also want to draw multiple instances of our 3D mesh, so we set the instance count (third argument) to 3, which we use in the [vertex shader](#shaders) to index into the [model matrices](#uniform-buffers).
+This call to [vkCmdDrawIndexed](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdDrawIndexed.html) will draw indexCount / 3 triangles from the currently bound index and vertex buffer. We also want to draw multiple instances of our 3D mesh, so we set the instance count (third argument) to 3, which we use in the [vertex shader](#the-shader) to index into the [model matrices](#uniform-buffers).
 
 We now [finish](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdEndRendering.html) the current render pass:
 
