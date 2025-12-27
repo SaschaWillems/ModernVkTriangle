@@ -27,7 +27,7 @@ The tutorial is focused on writing actual Vulkan code and getting things up and 
 
 ## Goal
 
-At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file (`main.cpp`) with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
+At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
 
 ## License
 
@@ -54,25 +54,33 @@ We'll use C++ 20, mostly for it's designated initializers. They help with Vulkan
 
 Vulkan does consume shaders in an intermediate format called [SPIR-V](https://www.khronos.org/spirv/). This decouples the API from the actual shading language. Initially only GLSL was supported, but in 2025 there are more and better options. One of those is [Slang](https://github.com/shader-slang) and that's what we'll be using for this tutorial. The language itself is more modern than GLSL and offers some convenient features.
 
-## Build system
+## Vulkan SDK
+
+While it's not required for developing Vulkan applications, the [LunarG Vulkan SDK](https://vulkan.lunarg.com/sdk/home) provides a convenient way to install commonly used libraries and tools, some of which are used in this tutorial. It's therefore recommended to install this.
+
+## Development environment
 
 Our build system will be [CMake](https://cmake.org/). Similar to my approach to writing code, things will be kept as simple as possible with the added benefit of being able to follow this tutorial with a wide variety of C++ compilers and IDEs.
 
-To create build files for your IDE, run CMake in the root folder of the project like this:
+To create build files for your C++ IDE, run CMake in the root folder of the project like this:
 
 ```bash
 cmake -B build -G "Visual Studio 17 2022"
 ```
 
-This will write a Visual Studio 2022 solution file to the `build` folder. The generator (-G) depends on your IDE, you can find a list of those [here](https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html). As an alternative you can use [cmake-gui](https://cmake.org/cmake/help/latest/manual/cmake-gui.1.html).
+This will write a Visual Studio 2022 solution file to the `build` folder. As an alternative to the command line, you can use [cmake-gui](https://cmake.org/cmake/help/latest/manual/cmake-gui.1.html). The generator (-G) depends on your IDE, you can find a list of those [here](https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html).
 
 ## Validation layers
 
 Vulkan was designed to minimize driver overhead. While that *can* result in better performance, it also removes many of the safeguards that APIs like OpenGL had and puts that responsibility into your hands. If you misuse Vulkan the driver is free to crash. So even if your app works on one GPU, it doesn't guarantee that it works on others. On the other hand, the Vulkan specification defines valid usages for all functionality. And with the [validation layers](https://github.com/KhronosGroup/Vulkan-ValidationLayers), an easy-to-use tool to check for that exists. 
 
-Validation layers can be enabled in code, but the easier option is to download the [LunarG Vulkan SDK](https://vulkan.lunarg.com/sdk/home) and enable the layers via the [Vulkan Configurator GUI](https://vulkan.lunarg.com/doc/view/latest/windows/vkconfig.html). Once they're enabled, any improper use of the API will be logged to the command line window of our application.
+Validation layers can be enabled in code, but the easier option is to enable the layers via the [Vulkan Configurator GUI](https://vulkan.lunarg.com/doc/view/latest/windows/vkconfig.html) provided by the [Vulkan SDK](#vulkan-sdk). Once they're enabled, any improper use of the API will be logged to the command line window of our application.
 
 > **Note:** You should always have the validation layers enabled when developing with Vulkan. This makes sure you write spec-compliant code that properly works on other systems.
+
+## Source
+
+Now that everything is setup we can start digging into the code and all the parts required to display something onto the screen with Vulkan. The following chapters will walk you through the [main source file](https://github.com/SaschaWillems/HowToVulkan/blob/main/src/main.cpp) from top to bottom.
 
 ## Instance setup
 
@@ -1451,7 +1459,7 @@ We want to have some interactivity in our application. For that we calculate rot
 
 The `Closed` event is called when our application is to be closed, no matter how. Calling `close` on our SFML window will exit the outer render loop (which checks if the window is open) and jumps to the [clean up](#cleaning-up) part of the code.
 
-Although it's optional, and something games often don't implement, we also handle resizing triggered by the `Resized` event. This way we can resize the window at it's border, and minimize or maximize it:
+Although it's optional, and something games often don't implement, we also handle resizing triggered by the `Resized` event. This require us to recreate some Vulkan objects:
 
 ```cpp
 if (const auto* resized = event->getIf<sf::Event::Resized>()) {
