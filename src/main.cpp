@@ -61,8 +61,11 @@ std::vector<VkSemaphore> renderSemaphores;
 VmaAllocation vBufferAllocation{ VK_NULL_HANDLE };
 VkBuffer vBuffer{ VK_NULL_HANDLE };
 struct UniformData {
-	glm::mat4 mvp;
-};
+	glm::mat4 projection;
+	glm::mat4 view;
+	glm::mat4 model[3];
+	uint32_t selected{1};
+} uniformData{};
 struct UniformBuffers {
 	VmaAllocation allocation{ VK_NULL_HANDLE };
 	VkBuffer buffer{ VK_NULL_HANDLE };
@@ -80,8 +83,8 @@ struct Texture {
 VkDescriptorPool descriptorPool{ VK_NULL_HANDLE };
 VkDescriptorSetLayout descriptorSetLayoutTex{ VK_NULL_HANDLE };
 Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
-glm::vec3 camRotation{ 0.0f };
-glm::vec3 camPos{ 0.0f, 0.0f, -4.0f };
+glm::vec3 camPos{ 0.0f, 0.0f, -6.0f };
+glm::vec3 objectRotations[3]{};
 sf::Vector2i lastMousePos{};
 struct Vertex {
 	glm::vec3 pos;
@@ -405,9 +408,12 @@ int main()
 		chk(vkResetFences(device, 1, &fences[frameIndex]));
 		vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
 		// Update uniform data
-		glm::quat rotQ = glm::quat(camRotation);
-		const glm::mat4 modelmat = glm::translate(glm::mat4(1.0f), camPos) * glm::mat4_cast(rotQ);
-		UniformData uniformData{ .mvp = glm::perspective(glm::radians(45.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f) * modelmat };
+		uniformData.projection = glm::perspective(glm::radians(45.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f);
+		uniformData.view = glm::translate(glm::mat4(1.0f), camPos);
+		for (auto i = 0; i < 3; i++) {
+			auto instancePos = glm::vec3((float)(i - 1) * 3.0f, 0.0f, 0.0f);
+			uniformData.model[i] = glm::translate(glm::mat4(1.0f), instancePos) * glm::mat4_cast(glm::quat(objectRotations[i]));
+		}
 		memcpy(uniformBuffers[frameIndex].mapped, &uniformData, sizeof(UniformData));
 		// Build command buffer
 		auto cb = commandBuffers[frameIndex];
@@ -523,14 +529,23 @@ int main()
 			if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>()) {
 				if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
 					auto delta = lastMousePos - mouseMoved->position;
-					camRotation.x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
-					camRotation.y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
+					objectRotations[uniformData.selected].x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
+					objectRotations[uniformData.selected].y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
 				}
 				lastMousePos = mouseMoved->position;
 			}
 			if (const auto* mouseWheelScrolled = event->getIf<sf::Event::MouseWheelScrolled>()) {
 				camPos.z += (float)mouseWheelScrolled->delta * 0.025f * (float)elapsed.asMilliseconds();
 			}
+			if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>()) {
+				if (keyPressed->code == sf::Keyboard::Key::Add) {
+					uniformData.selected = (uniformData.selected < 2) ? uniformData.selected + 1 : 0;
+				}
+				if (keyPressed->code == sf::Keyboard::Key::Subtract) {
+					uniformData.selected = (uniformData.selected > 0) ? uniformData.selected - 1 : 2;
+				}
+			}
+			// Window resize
 			if (const auto* resized = event->getIf<sf::Event::Resized>()) {
 				vkDeviceWaitIdle(device);
 				swapchainCI.oldSwapchain = swapchain;

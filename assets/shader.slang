@@ -12,23 +12,28 @@ struct VSInput {
 [[vk::binding(0,0)]] Sampler2D samplerTexture;
 
 struct UBO {
-    float4x4 mvp;
+    float4x4 projection;
+    float4x4 view;
+    float4x4 model[3];
+    uint32_t selected;
 };
 
 struct VSOutput {
 	float4 Pos : SV_POSITION;
     float2 UV;
+    float3 Factor;
 };
 
 [shader("vertex")]
-VSOutput main(VSInput input, uniform UBO *ubo) {
+VSOutput main(VSInput input, uniform UBO *ubo, uint instanceIndex : SV_VulkanInstanceID) {
 	VSOutput output;
 	output.UV = input.UV;
-    output.Pos = mul(ubo->mvp, float4(input.Pos.xyz, 1.0));
-	return output;
+    output.Pos = mul(ubo->projection, mul(ubo->view, mul(ubo->model[instanceIndex], float4(input.Pos.xyz, 1.0))));
+    output.Factor = (ubo.selected == instanceIndex ? 3.0f : 1.0f);
+    return output;
 }
 
 [shader("fragment")]
 float4 main(VSOutput input) {
-    return float4(samplerTexture.Sample(input.UV).rgb, 1.0);
+    return float4(samplerTexture.Sample(input.UV).rgb * input.Factor, 1.0);
 }

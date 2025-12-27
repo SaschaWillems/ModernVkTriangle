@@ -23,7 +23,7 @@ tl;dr: Doing Vulkan in 202X can be very different from doing Vulkan in 2016. Tha
 
 ## Target audience
 
-The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (possibly in a single afternoon). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). Instead it'll often contain links to relevant information like the [Vulkan specification](https://docs.vulkan.org/). You should bring at least basic knowledge of C/C++ and realtime graphics concepts.
+The tutorial is focused on writing actual Vulkan code and getting things up and running as fast as possible (possibly in an afternoon). It won't explain programming, software architecture, graphics concepts or how Vulkan works (in detail). Instead it'll often contain links to relevant information like the [Vulkan specification](https://docs.vulkan.org/). You should bring at least basic knowledge of C/C++ and realtime graphics concepts.
 
 ## Goal
 
@@ -476,7 +476,20 @@ std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
 
 ## Uniform buffers
 
-We also want to pass dynamic values like matrices to our shaders. These can change at any time, e.g. by user input. For that we are going to use a different buffer type (than for mesh data), namely uniform buffers.
+We also want to pass values to our [shaders](#the-shader) that can change dynamically. For that we are going to use a different buffer type (than for mesh data), namely uniform buffers. 
+
+The data we want to pass is stored in a single struct and contains a projection and view matrix. As we are going to render multiple models, we also store multiple model matrices a long with a selected model index that's used for some interactivity:
+
+```cpp
+struct UniformData {
+	glm::mat4 projection;
+	glm::mat4 view;
+	glm::mat4 model[3];
+	uint32_t selected{1};
+} uniformData{};
+```
+
+> **Note:** It's important to match structure layouts between CPU-side and GPU-side. Depending on the data types and arrangement used, layouts might look the same but will actually be different due to how shading languages align struct members. One way to avoid this, aside from manually aligning or padding structures, is to use Vulkan's [VK_EXT_scalar_block_layout](https://docs.vulkan.org/refpages/latest/refpages/source/VK_EXT_scalar_block_layout.html) or the corresponding Vulkan 1.2 core feature (both are optional).
 
 Uniform here means that the data provided to the GPU by such a buffer is uniform (aka constant) across all shader invocations for a draw call. This is an important guarantee for the GPU and also one of the reason we have one uniform buffer per frame in flight. Update uniform data from the CPU while the GPU hasn't finished reading it might cause all sorts of issues.
 
@@ -490,7 +503,7 @@ As mentioned in [the previous chapter](#cpu-and-gpu-parallelism) we create one u
 for (auto i = 0; i < maxFramesInFlight; i++) {
 	VkBufferCreateInfo uBufferCI{
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = sizeof(gUniformData),
+		.size = sizeof(UniformData),
 		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
 	};
 	VmaAllocationCreateInfo uBufferAllocCI{
@@ -871,9 +884,7 @@ chk(vkCreateShaderModule(device, &shaderModuleCI, nullptr, &shaderModule));
 
 ## The shader
 
-The shader itself is pretty simple. We have entry points for a vertex (`[shader("vertex")]`) and a fragment shader (`[shader("fragment")]`). The `VSInput` structure that is passed to the main function of the vertex shader passes the vertex attributes from the application into said shader. We access the uniform data containing our model-view-projection matrix via a pointer passed as a push constant to the fragment's shader main function. The vertex shader transforms the vertex data with that and uses `VSOutput` to pass that to the fragment shader. That then uses `samplerTexture` to sample from the texture and writes to the color attachment.
-
-> **Note:** Slang lets us put all shader stages into a single file. That removes the need to duplicate the shader interface or having to put that into shared includes. It also makes it easier to read (and edit) the shader.
+Even though shading languages are limited compared to CPU programming languages, they still allow for long and complex shaders. Our shader is comparatively simple though:
 
 ```slang
 struct VSInput {
@@ -881,30 +892,43 @@ struct VSInput {
 	float2 UV;
 };
 
-[[vk::binding(0,1)]] Sampler2D samplerTexture;
+[[vk::binding(0,0)]] Sampler2D samplerTexture;
 
 struct UBO {
-	float4x4 mvp;
+    float4x4 projection;
+    float4x4 view;
+    float4x4 model[3];
+    uint32_t selected;
 };
 
 struct VSOutput {
 	float4 Pos : SV_POSITION;
-	float2 UV;
+    float2 UV;
+    float3 Factor;
 };
 
 [shader("vertex")]
-VSOutput main(VSInput input, uniform UBO *ubo) {
+VSOutput main(VSInput input, uniform UBO *ubo, uint instanceIndex : SV_VulkanInstanceID) {
 	VSOutput output;
 	output.UV = input.UV;
-	output.Pos = mul(ubo->mvp, float4(input.Pos.xyz, 1.0));
-	return output;
+    output.Pos = mul(ubo->projection, mul(ubo->view, mul(ubo->model[instanceIndex], float4(input.Pos.xyz, 1.0))));
+    output.Factor = (ubo.selected == instanceIndex ? 3.0f : 1.0f);
+    return output;
 }
 
 [shader("fragment")]
 float4 main(VSOutput input) {
-	return float4(samplerTexture.Sample(input.UV).rgb, 1.0);
+    return float4(samplerTexture.Sample(input.UV).rgb * input.Factor, 1.0);
 }
 ```
+
+> **Note:** Slang lets us put all shader stages into a single file. That removes the need to duplicate the shader interface or having to put that into shared includes. It also makes it easier to read (and edit) the shader.
+
+It contains two shading stages and starts with defining structures that are used by the different stages. The `UBO` structure matches the layout of the uniform buffer data defined on the [CPU-side](#uniform-buffers).
+
+First is the vertex shader, marked by the `[shader("vertex")]` attribute. It takes in vertices defined as per `VSInput`, matching the vertex layout from the [graphics pipeline](#graphics-pipeline). The vertex shader will be invoked for every vertex [drawn](#record-command-buffers). As we use buffer device address, we pass and access the UBO as a pointer. As we draw multiple instances of our 3D model and want to use different matrices for every instance, we use the built-in `SV_VulkanInstanceID` system value to index into the model matrices. We also want to highlight the selected model, so if the current instance matches that selection, we pass a different color factor to the fragment shader.
+
+Second is the fragment shader, marked by the `[shader("fragment")]` attribute. This uses values passed from the vertex shader to read from the [texture](#loading-textures) and outputs that to the color attachment.
 
 ## Graphics pipeline
 
@@ -1123,13 +1147,15 @@ We also pass a [semaphore](#synchronization-objects) to this function which will
 
 ### Update shader data
 
-We want the next frame to use up-to-date user inputs. This is safe to do now For that we calculate a model view projection matrix from the current camera rotation and position using glm:
+We want the next frame to use up-to-date user inputs. This is safe to do now after waiting for the fence. For that we update matrices from current data using glm:
 
 ```cpp
-glm::quat rotQ = glm::quat(camRotation);
-const glm::mat4 modelmat = glm::translate(glm::mat4(1.0f), camPos) * glm::mat4_cast(rotQ);
-UniformData uniformData{ .mvp = glm::perspective(glm::radians(45.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f) * modelmat };
-1f, 32.0f) * modelmat;
+uniformData.projection = glm::perspective(glm::radians(45.0f), (float)window.getSize().x / (float)window.getSize().y, 0.1f, 32.0f);
+uniformData.view = glm::translate(glm::mat4(1.0f), camPos);
+for (auto i = 0; i < 3; i++) {
+	auto instancePos = glm::vec3((float)(i - 1) * 3.0f, 0.0f, 0.0f);
+	uniformData.model[i] = glm::translate(glm::mat4(1.0f), instancePos) * glm::mat4_cast(glm::quat(objectRotations[i]));
+}
 ```
 
 A simple `memcpy` to the uniform buffer's persistently mapped pointer is sufficient to make this available to the GPU (and with that our shader):
@@ -1286,7 +1312,7 @@ And with that we are *finally* ready to issue an actual draw command. With all t
 vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
 ```
 
-This call to [vkCmdDrawIndexed](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdDrawIndexed.html) will draw indexCount / 3 triangles from the currently bound index and vertex buffer. We also want to draw multiple instances of our 3D mesh, so we set the instance count (third argument) to 3, which we use in the [vertex shader](#shaders) to calculate different positions.
+This call to [vkCmdDrawIndexed](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdDrawIndexed.html) will draw indexCount / 3 triangles from the currently bound index and vertex buffer. We also want to draw multiple instances of our 3D mesh, so we set the instance count (third argument) to 3, which we use in the [vertex shader](#shaders) to index into the [model matrices](#uniform-buffers).
 
 We now [finish](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdEndRendering.html) the current render pass:
 
@@ -1393,8 +1419,8 @@ while (const std::optional event = window.pollEvent()) {
 	if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>()) {
 		if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
 			auto delta = lastMousePos - mouseMoved->position;
-			camRotation.x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
-			camRotation.y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
+			objectRotations[uniformData.selected].x += (float)delta.y * 0.0005f * (float)elapsed.asMilliseconds();
+			objectRotations[uniformData.selected].y -= (float)delta.x * 0.0005f * (float)elapsed.asMilliseconds();
 		}
 		lastMousePos = mouseMoved->position;
 	}
@@ -1404,6 +1430,16 @@ while (const std::optional event = window.pollEvent()) {
 		camPos.z += (float)mouseWheelScrolled->delta * 0.025f * (float)elapsed.asMilliseconds();
 	}
 
+	// Select active model instance
+	if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>()) {
+		if (keyPressed->code == sf::Keyboard::Key::Add) {
+			uniformData.selected = (uniformData.selected < 2) ? uniformData.selected + 1 : 0;
+		}
+		if (keyPressed->code == sf::Keyboard::Key::Subtract) {
+			uniformData.selected = (uniformData.selected > 0) ? uniformData.selected - 1 : 2;
+		}
+	}	
+
 	// Window resize
 	if (const auto* resized = event->getIf<sf::Event::Resized>()) {
 		...
@@ -1411,7 +1447,7 @@ while (const std::optional event = window.pollEvent()) {
 }
 ```
 
-We want to have some interactivity in our application, so we calculate rotation based on mouse movement when the left button is down in the `MouseMoved` event and do similar with the mousewheel in `MouseWheelScrolled` to allow zooming in and out.
+We want to have some interactivity in our application. For that we calculate rotation for the currently selected model instance based on mouse movement when the left button is down in the `MouseMoved` event. And similar with the mousewheel in `MouseWheelScrolled` to allow zooming the camera in and out. The `keyPressed` event let's us toggle between the model instances.
 
 The `Closed` event is called when our application is to be closed, no matter how. Calling `close` on our SFML window will exit the outer render loop (which checks if the window is open) and jumps to the [clean up](#cleaning-up) part of the code.
 
