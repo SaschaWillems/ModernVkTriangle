@@ -27,7 +27,7 @@ The tutorial is focused on writing actual Vulkan code and getting things up and 
 
 ## Goal
 
-At the end of this tutorial we'll see multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
+This tutorial is focused on rasterization, other parts of Vulkan like compute or raytracing are not covered. At the end of this we'll have multiple textured objects on screen that can be rotated using the mouse. Source comes in a single file with a few hundred lines of code, no abstractions, hard to read modern C++ language constructs or object-oriented shenanigans. I believe that being able to follow source code from top-to-bottom without having to go through multiple layers of abstractions makes it much easier to follow.
 
 ## License
 
@@ -1531,3 +1531,8 @@ Ordering of commands only matters for the VMA allocator, device and instance. Th
 
 ## Closing words
 
+By now, you should have a basic understanding of how to create a Vulkan application that does rasterization by leveraging recent API versions and features. Vulkan is still pretty verbose, something inherent to an explicit low-level API. But things have become easier. Maybe not in terms of writing less code, but more in regards to using and understanding the API.
+
+Looking at the broader picture Vulkan now also covers more use-cases than ever. In addition to rasterization and compute, it now also supports hardware accelerated raytracing and functions geared towards artificial intelligence.
+
+If you're looking for further resources, check the [Vulkan Docs Site](https://docs.vulkan.org/). It combines multiple Vulkan documentation resources like the spec, a tutorial and samples into one convenient site.
