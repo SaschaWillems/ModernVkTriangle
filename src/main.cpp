@@ -297,13 +297,13 @@ int main()
 		VkDependencyInfo barrierTexInfo{ .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrierTexImage };
 		vkCmdPipelineBarrier2(cbOneTime, &barrierTexInfo);
 		std::vector<VkBufferImageCopy> copyRegions{};
-		for (auto i = 0; i < ktxTexture->numLevels; i++) {
+		for (auto j = 0; j < ktxTexture->numLevels; j++) {
 			ktx_size_t mipOffset{0};
-			KTX_error_code ret = ktxTexture_GetImageOffset(ktxTexture, i, 0, 0, &mipOffset);
+			KTX_error_code ret = ktxTexture_GetImageOffset(ktxTexture, j, 0, 0, &mipOffset);
 			copyRegions.push_back({
 				.bufferOffset = mipOffset,
-				.imageSubresource{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = (uint32_t)i, .layerCount = 1},
-				.imageExtent{.width = ktxTexture->baseWidth >> i, .height = ktxTexture->baseHeight >> i, .depth = 1 },
+				.imageSubresource{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = (uint32_t)j, .layerCount = 1},
+				.imageExtent{.width = ktxTexture->baseWidth >> j, .height = ktxTexture->baseHeight >> j, .depth = 1 },
 			});
 		}
 		vkCmdCopyBufferToImage(cbOneTime, imgSrcBuffer, textures[i].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copyRegions.size()), copyRegions.data());
@@ -327,7 +327,6 @@ int main()
 		vkDestroyFence(device, fenceOneTime, nullptr);
 		vmaUnmapMemory(allocator, imgSrcAllocation);
 		vmaDestroyBuffer(allocator, imgSrcBuffer, imgSrcAllocation);
-		ktxTexture_Destroy(ktxTexture);
 		// Sampler
 		VkSamplerCreateInfo samplerCI{
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -339,6 +338,7 @@ int main()
 			.maxLod = (float)ktxTexture->numLevels,
 		};
 		chk(vkCreateSampler(device, &samplerCI, nullptr, &textures[i].sampler));
+		ktxTexture_Destroy(ktxTexture);
 		textureDescriptors.push_back({ .sampler = textures[i].sampler, .imageView = textures[i].view, .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL });
 	}
 	// Descriptor (indexing)
