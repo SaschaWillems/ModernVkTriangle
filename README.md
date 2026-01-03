@@ -1,6 +1,9 @@
+> [!TIP]
+> A proper tutorial for doing "modern" Vulkan can be found at https://github.com/SaschaWillems/HowToVulkan
+
 # Modern Vulkan Triangle
 
-A personal playground for writing a Vulkan triangle example in 2025. 
+A personal playground for writing a Vulkan triangle example in 2025.
 
 I'm also using this to test and compare different things, e.g. usinv Vulkan.hpp and/or slang.
 
